@@ -1,0 +1,57 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  max-width: 480px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.card {
+  border: 1px solid #8884;
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+input, button {
+  font-size: 1rem;
+  padding: 0.5rem;
+}
+
+.code-display {
+  font-size: 1.5rem;
+  font-weight: bold;
+  letter-spacing: 0.1em;
+}
+
+.error {
+  color: #d33;
+  min-height: 1.2em;
+}
+
+main ul {
+  list-style: none;
+  padding: 0;
+}
+
+main li {
+  padding: 0.5rem;
+  border-bottom: 1px solid #8882;
+}
+
+#settings-host-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Anime Imposter</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main>
+    <h1>Anime Imposter</h1>
+
+    <section id="screen-home" class="screen">
+      <div class="card">
+        <h2>Create a Room</h2>
+        <button id="create-btn">Create Room</button>
+        <p id="room-code-display" class="code-display"></p>
+      </div>
+
+      <div class="card">
+        <h2>Join a Room</h2>
+        <input id="join-name-input" placeholder="Your name" />
+        <input id="join-code-input" placeholder="Room code" maxlength="4" />
+        <button id="join-btn">Join Room</button>
+        <p id="join-error" class="error"></p>
+      </div>
+    </section>
+
+    <section id="screen-lobby" class="screen" hidden>
+      <h2>Room <span id="lobby-room-code"></span></h2>
+      <ul id="lobby-player-list"></ul>
+
+      <div class="card">
+        <h3>Settings</h3>
+        <div id="settings-host-controls">
+          <label>
+            Turn timer:
+            <select id="timer-select">
+              <option value="15">15s</option>
+              <option value="30" selected>30s</option>
+              <option value="60">60s</option>
+              <option value="none">No limit</option>
+            </select>
+          </label>
+          <label>
+            Difficulty:
+            <select id="difficulty-select">
+              <option value="easy" selected>Easy</option>
+              <option value="hard">Hard</option>
+            </select>
+          </label>
+        </div>
+        <p id="settings-readonly" hidden></p>
+      </div>
+
+      <p id="host-hint" class="error"></p>
+      <button id="start-game-btn" hidden>Start Game</button>
+    </section>
+
+    <section id="screen-hints" class="screen" hidden>
+      <h2 id="turn-heading"></h2>
+      <p id="turn-timer-display"></p>
+      <p id="role-banner"></p>
+      <input id="hint-input" placeholder="One-word hint" />
+      <button id="hint-submit-btn">Submit Hint</button>
+      <h3>Hints so far</h3>
+      <ul id="hints-so-far"></ul>
+    </section>
+
+    <section id="screen-voting" class="screen" hidden>
+      <h2>Discussion</h2>
+      <ul id="hints-list"></ul>
+      <p id="discussion-timer-display"></p>
+
+      <div id="voting-panel" hidden>
+        <h2>Vote for the Imposter</h2>
+        <ul id="vote-list"></ul>
+        <p id="vote-progress"></p>
+      </div>
+    </section>
+
+    <section id="screen-reveal" class="screen" hidden>
+      <h2>Reveal</h2>
+      <p id="reveal-text"></p>
+      <button id="new-round-btn" hidden>New Round</button>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
