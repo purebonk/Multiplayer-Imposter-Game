@@ -10,9 +10,16 @@ from fastapi import WebSocket
 
 TIMER_OPTIONS = (15, 30, 60, None)
 DIFFICULTY_OPTIONS = ("easy", "hard")
+MAX_IMPOSTERS = 3
 
 ROOM_CODE_LENGTH = 4
 ROOM_CODE_ALPHABET = string.ascii_uppercase + string.digits
+
+
+def valid_imposter_counts(player_count: int) -> list[int]:
+    # Crew must always start a round with a strict majority, or a single
+    # elimination round could hand imposters the win by dead heat alone.
+    return [n for n in range(1, MAX_IMPOSTERS + 1) if n < player_count / 2]
 
 
 class RoomState(str, Enum):
@@ -42,11 +49,20 @@ class Room:
     timer_seconds: Optional[int] = 30
     difficulty: str = "easy"
     give_imposter_hint: bool = True
+    num_imposters: int = 1
 
-    imposter_id: Optional[str] = None
-    imposter_name: Optional[str] = None
     character_name: Optional[str] = None
     anime_title: Optional[str] = None
+    # Fixed once per GAME at start_game/new_round, not per round -- an
+    # elimination-style game keeps the same imposters across every round
+    # until someone wins. Names are captured alongside the ids (not looked
+    # up later) so the final reveal still shows them correctly even if an
+    # imposter disconnects before the game ends.
+    imposter_ids: set[str] = field(default_factory=set)
+    imposter_names: dict[str, str] = field(default_factory=dict)
+    eliminated_ids: set[str] = field(default_factory=set)
+    round_number: int = 0
+
     # keyed by player_id -> {"name": str, "hint": str}; the name is captured
     # at submit time so a hint given just before someone disconnects still
     # renders correctly in the reveal, without a room.players lookup.
@@ -56,9 +72,18 @@ class Room:
     turn_order: list[str] = field(default_factory=list)
     turn_index: int = 0
     turn_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
+    voting_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
 
     def player_summaries(self) -> list[dict]:
         return [{"id": p.id, "name": p.name} for p in self.players.values()]
+
+    def remaining_ids(self) -> list[str]:
+        """Currently-connected players who haven't been ejected this game.
+
+        A disconnect is already reflected here for free: main.py deletes a
+        departed player from `players` immediately, so this list shrinks
+        without needing to separately track "left" vs "ejected"."""
+        return [pid for pid in self.players if pid not in self.eliminated_ids]
 
     def current_turn_player_id(self) -> Optional[str]:
         if 0 <= self.turn_index < len(self.turn_order):
@@ -81,18 +106,33 @@ class Room:
         if player is not None:
             await player.websocket.send_json(message)
 
-    def reset_round_state(self) -> None:
+    def cancel_timers(self) -> None:
         if self.turn_task is not None:
             self.turn_task.cancel()
             self.turn_task = None
+        if self.voting_task is not None:
+            self.voting_task.cancel()
+            self.voting_task = None
+
+    def reset_round_state(self) -> None:
+        """Clears per-round state (hints/votes/turns). Does NOT touch
+        character/imposter identity — those are fixed for the whole game."""
+        self.cancel_timers()
         self.hints.clear()
         self.votes.clear()
-        self.imposter_id = None
-        self.imposter_name = None
-        self.character_name = None
-        self.anime_title = None
         self.turn_order = []
         self.turn_index = 0
+
+    def reset_game_state(self) -> None:
+        """Clears everything tying this room to a specific game, for a fresh
+        start_game/new_round: new character, new imposters, round count."""
+        self.reset_round_state()
+        self.character_name = None
+        self.anime_title = None
+        self.imposter_ids = set()
+        self.imposter_names = {}
+        self.eliminated_ids = set()
+        self.round_number = 0
 
 
 class RoomManager:

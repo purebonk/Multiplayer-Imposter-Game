@@ -1,12 +1,17 @@
 import json
 import uuid
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+import character_details
 import game
 from rooms import Player, RoomState, rooms
+
+DETAILS_ERROR_MESSAGE = (
+    "Couldn't load extra details right now — Jikan (the anime database) might be temporarily unavailable."
+)
 
 app = FastAPI()
 
@@ -16,6 +21,18 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/")
 async def index():
     return FileResponse("static/index.html")
+
+
+@app.get("/api/character-details")
+async def get_character_details(character: str):
+    # Deliberately no game/room lookup here at all -- this is a stateless,
+    # decorative endpoint. Any failure mode (timeout, rate limit, no match,
+    # Jikan itself down) collapses to the same honest message; the frontend
+    # doesn't need to distinguish why it failed, just that it did.
+    try:
+        return await character_details.fetch_character_details(character)
+    except Exception:
+        raise HTTPException(status_code=502, detail=DETAILS_ERROR_MESSAGE)
 
 
 @app.post("/api/rooms")
@@ -72,6 +89,7 @@ async def websocket_endpoint(
             "timer_seconds": room.timer_seconds,
             "difficulty": room.difficulty,
             "give_imposter_hint": room.give_imposter_hint,
+            "num_imposters": room.num_imposters,
         },
     )
     await room.broadcast(
@@ -100,6 +118,7 @@ async def websocket_endpoint(
                     message.get("timer_seconds"),
                     message.get("difficulty"),
                     message.get("give_imposter_hint"),
+                    message.get("num_imposters"),
                 )
             elif msg_type == "submit_hint":
                 await game.submit_hint(room, player_id, message.get("hint", ""))

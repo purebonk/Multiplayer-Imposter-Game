@@ -17,28 +17,44 @@ const settingsHostControls = document.getElementById("settings-host-controls");
 const settingsReadonly = document.getElementById("settings-readonly");
 const timerSelect = document.getElementById("timer-select");
 const difficultySelect = document.getElementById("difficulty-select");
+const imposterCountSelect = document.getElementById("imposter-count-select");
 const imposterHintCheckbox = document.getElementById("imposter-hint-checkbox");
 const hostHint = document.getElementById("host-hint");
 const startGameBtn = document.getElementById("start-game-btn");
+const startingLoading = document.getElementById("starting-loading");
 
+const gameStatusBar = document.getElementById("game-status-bar");
 const turnHeading = document.getElementById("turn-heading");
 const turnTimerDisplay = document.getElementById("turn-timer-display");
 const roleBanner = document.getElementById("role-banner");
+const hintForm = document.getElementById("hint-form");
 const hintInput = document.getElementById("hint-input");
 const hintSubmitBtn = document.getElementById("hint-submit-btn");
 const hintsSoFar = document.getElementById("hints-so-far");
 
+const gameStatusBarVoting = document.getElementById("game-status-bar-voting");
 const hintsList = document.getElementById("hints-list");
-const discussionTimerDisplay = document.getElementById("discussion-timer-display");
+const votingTimerDisplay = document.getElementById("voting-timer-display");
 const votingPanel = document.getElementById("voting-panel");
 const voteList = document.getElementById("vote-list");
 const voteProgress = document.getElementById("vote-progress");
+const spectatorNote = document.getElementById("spectator-note");
 
 const revealText = document.getElementById("reveal-text");
+const nextRoundLoading = document.getElementById("next-round-loading");
+const characterDetailsBlock = document.getElementById("character-details-block");
+const viewDetailsBtn = document.getElementById("view-details-btn");
+const detailsLoading = document.getElementById("details-loading");
+const detailsError = document.getElementById("details-error");
+const detailsPanel = document.getElementById("details-panel");
+const detailsImage = document.getElementById("details-image");
+const detailsAbout = document.getElementById("details-about");
 const newRoundBtn = document.getElementById("new-round-btn");
+const newRoundLoading = document.getElementById("new-round-loading");
 
 const MIN_PLAYERS = 3;
-const DISCUSSION_SECONDS = 20;
+const MAX_IMPOSTERS = 3;
+const DETAILS_FETCH_TIMEOUT_MS = 5000;
 
 // One random ID per page load (per tab). This is what lets the server tell
 // "this tab tried to join again" apart from "a different tab/device joined"
@@ -54,9 +70,21 @@ let myRoomCode = "";
 let timerSeconds = 30;
 let difficulty = "easy";
 let giveImposterHint = true;
+let numImposters = 1;
+
+// Captured once from game_started and reused every round — the character
+// and role don't change between elimination rounds within the same game.
+let myRole = null;
+let myCharacter = null;
+let myAnimeTitle = null;
+let myHint = null;
+let myTeammates = [];
+
+let roundNumber = 0;
+let remainingPlayers = [];
 
 let turnCountdownInterval = null;
-let discussionInterval = null;
+let votingCountdownInterval = null;
 
 function showScreen(id) {
   for (const s of screens) s.hidden = s.id !== id;
@@ -67,6 +95,14 @@ function isBeforeRoomJoin() {
     && document.getElementById("screen-hints").hidden
     && document.getElementById("screen-voting").hidden
     && document.getElementById("screen-reveal").hidden;
+}
+
+function validImposterCounts(playerCount) {
+  const options = [];
+  for (let n = 1; n <= MAX_IMPOSTERS; n++) {
+    if (n < playerCount / 2) options.push(n);
+  }
+  return options;
 }
 
 nameForm.addEventListener("submit", (event) => {
@@ -140,6 +176,7 @@ function handleMessage(data) {
       timerSeconds = data.timer_seconds;
       difficulty = data.difficulty;
       giveImposterHint = data.give_imposter_hint;
+      numImposters = data.num_imposters;
       renderLobby();
       showScreen("screen-lobby");
       break;
@@ -153,10 +190,14 @@ function handleMessage(data) {
       timerSeconds = data.timer_seconds;
       difficulty = data.difficulty;
       giveImposterHint = data.give_imposter_hint;
+      numImposters = data.num_imposters;
       renderLobby();
       break;
     case "game_started":
-      enterHintsScreen(data);
+      handleGameStarted(data);
+      break;
+    case "round_started":
+      handleRoundStarted(data);
       break;
     case "turn_started":
       handleTurnStarted(data);
@@ -165,15 +206,19 @@ function handleMessage(data) {
       appendHintSoFar(data);
       break;
     case "hints_revealed":
-      enterVotingScreen(data.hints);
+      enterVotingScreen(data.hints, data.timer_seconds);
       break;
     case "vote_progress":
       voteProgress.textContent = `${data.voted_count}/${data.total} votes cast`;
       break;
     case "round_reveal":
-      enterRevealScreen(data);
+      handleRoundReveal(data);
       break;
     case "error":
+      startingLoading.hidden = true;
+      newRoundLoading.hidden = true;
+      startGameBtn.disabled = players.length < MIN_PLAYERS;
+      newRoundBtn.disabled = false;
       if (isBeforeRoomJoin()) {
         joinError.textContent = data.message;
       } else {
@@ -202,10 +247,17 @@ function renderLobby() {
     timerSelect.value = timerSeconds === null ? "none" : String(timerSeconds);
     difficultySelect.value = difficulty;
     imposterHintCheckbox.checked = giveImposterHint;
+
+    const valid = new Set(validImposterCounts(players.length));
+    for (const option of imposterCountSelect.options) {
+      option.disabled = !valid.has(Number(option.value));
+    }
+    imposterCountSelect.value = String(numImposters);
   } else {
     const timerLabel = timerSeconds === null ? "No limit" : `${timerSeconds}s`;
     const hintLabel = giveImposterHint ? "on" : "off";
-    settingsReadonly.textContent = `Timer: ${timerLabel} · Difficulty: ${difficulty} · Imposter hint: ${hintLabel}`;
+    settingsReadonly.textContent =
+      `Timer: ${timerLabel} · Difficulty: ${difficulty} · Imposters: ${numImposters} · Imposter hint: ${hintLabel}`;
   }
 
   startGameBtn.hidden = !isHost;
@@ -226,6 +278,7 @@ function sendSettingsUpdate() {
       timer_seconds: newTimerSeconds,
       difficulty: difficultySelect.value,
       give_imposter_hint: imposterHintCheckbox.checked,
+      num_imposters: parseInt(imposterCountSelect.value, 10),
     })
   );
 }
@@ -233,32 +286,63 @@ function sendSettingsUpdate() {
 timerSelect.addEventListener("change", sendSettingsUpdate);
 difficultySelect.addEventListener("change", sendSettingsUpdate);
 imposterHintCheckbox.addEventListener("change", sendSettingsUpdate);
+imposterCountSelect.addEventListener("change", sendSettingsUpdate);
 
 startGameBtn.addEventListener("click", () => {
+  startGameBtn.disabled = true;
+  startingLoading.hidden = false;
   socket.send(JSON.stringify({ type: "start_game" }));
 });
 
-function enterHintsScreen(data) {
+function handleGameStarted(data) {
+  startingLoading.hidden = true;
+  myRole = data.your_role;
+  myCharacter = data.character;
+  myAnimeTitle = data.anime_title || null;
+  myHint = data.hint || null;
+  myTeammates = data.teammates || [];
+}
+
+function roleBannerText() {
+  if (myRole === "imposter") {
+    const teammateText = myTeammates.length
+      ? ` Your fellow imposter${myTeammates.length > 1 ? "s" : ""}: ${myTeammates.join(", ")}.`
+      : "";
+    const hintText = myHint
+      ? ` Clue: ${myHint.role_hint}, genres: ${myHint.genres.join(", ")}.`
+      : " No hint this round — bluff carefully!";
+    return `You are the IMPOSTER.${hintText}${teammateText}`;
+  }
+  return `Character: ${myCharacter} (${myAnimeTitle})`;
+}
+
+function amEliminated() {
+  return !remainingPlayers.some((p) => p.id === myId);
+}
+
+function handleRoundStarted(data) {
+  startingLoading.hidden = true;
+  nextRoundLoading.hidden = true;
+  newRoundLoading.hidden = true;
+
+  roundNumber = data.round_number;
+  remainingPlayers = data.remaining_players;
+
   hintsSoFar.innerHTML = "";
   hintInput.value = "";
   // Locked by default until this player's own turn_started arrives — without
   // this, the input sits enabled for everyone in the gap between
-  // game_started and the first turn_started broadcast, since nothing else
-  // disables it. The server always rejected an out-of-turn submit_hint, but
-  // the input looking clickable for everyone is what actually created the
-  // "why is it everyone's turn at once" confusion.
+  // round_started and the first turn_started broadcast, since nothing else
+  // disables it yet.
   hintInput.disabled = true;
   hintSubmitBtn.disabled = true;
 
-  if (data.your_role === "imposter") {
-    if (data.hint) {
-      roleBanner.textContent = `You are the IMPOSTER. Clue: ${data.hint.role_hint}, genres: ${data.hint.genres.join(", ")}. Bluff a one-word hint on your turn!`;
-    } else {
-      roleBanner.textContent = "You are the IMPOSTER. No hint this round — bluff carefully!";
-    }
-  } else {
-    roleBanner.textContent = `Character: ${data.character} (${data.anime_title})`;
-  }
+  const statusText = `Round ${roundNumber} · ${data.remaining_count} players remain`
+    + (amEliminated() ? " · You were ejected — spectating" : "");
+  gameStatusBar.textContent = statusText;
+  gameStatusBarVoting.textContent = statusText;
+
+  roleBanner.textContent = roleBannerText();
 
   showScreen("screen-hints");
 }
@@ -294,9 +378,10 @@ function startTurnCountdown(seconds) {
   }, 1000);
 }
 
-hintSubmitBtn.addEventListener("click", () => {
+hintForm.addEventListener("submit", (event) => {
+  event.preventDefault();
   const hint = hintInput.value.trim();
-  if (!hint) return;
+  if (!hint || hintInput.disabled) return;
   socket.send(JSON.stringify({ type: "submit_hint", hint }));
   hintInput.value = "";
   hintInput.disabled = true;
@@ -309,7 +394,7 @@ function appendHintSoFar(data) {
   hintsSoFar.appendChild(li);
 }
 
-function enterVotingScreen(hints) {
+function enterVotingScreen(hints, votingTimerSeconds) {
   if (turnCountdownInterval) clearInterval(turnCountdownInterval);
 
   hintsList.innerHTML = "";
@@ -319,52 +404,133 @@ function enterVotingScreen(hints) {
     hintsList.appendChild(li);
   }
 
-  votingPanel.hidden = true;
+  const eliminated = amEliminated();
+  votingPanel.hidden = false;
+  spectatorNote.hidden = !eliminated;
   voteList.innerHTML = "";
-  // The server is what actually blocks a self-vote (game.py submit_vote) —
-  // this is just not offering a button that would always get rejected.
-  for (const p of players.filter((p) => p.id !== myId)) {
-    const li = document.createElement("li");
-    const btn = document.createElement("button");
-    btn.textContent = `Vote ${p.name}`;
-    btn.addEventListener("click", () => {
-      socket.send(JSON.stringify({ type: "submit_vote", target_id: p.id }));
-    });
-    li.appendChild(btn);
-    voteList.appendChild(li);
+  if (!eliminated) {
+    // The server is what actually blocks a self-vote or a vote for someone
+    // already ejected (game.py submit_vote) — this is just not offering
+    // buttons that would always get rejected.
+    for (const p of remainingPlayers.filter((p) => p.id !== myId)) {
+      const li = document.createElement("li");
+      const btn = document.createElement("button");
+      btn.textContent = `Vote ${p.name}`;
+      btn.addEventListener("click", () => {
+        socket.send(JSON.stringify({ type: "submit_vote", target_id: p.id }));
+      });
+      li.appendChild(btn);
+      voteList.appendChild(li);
+    }
   }
   voteProgress.textContent = "";
 
   showScreen("screen-voting");
-  startDiscussionCountdown();
+  startVotingCountdown(votingTimerSeconds);
 }
 
-function startDiscussionCountdown() {
-  if (discussionInterval) clearInterval(discussionInterval);
+function startVotingCountdown(seconds) {
+  if (votingCountdownInterval) clearInterval(votingCountdownInterval);
 
-  let remaining = DISCUSSION_SECONDS;
-  discussionTimerDisplay.textContent = `Discuss! Voting opens in ${remaining}s`;
-  discussionInterval = setInterval(() => {
+  if (seconds === null) {
+    votingTimerDisplay.textContent = "Discuss and vote — no time limit";
+    return;
+  }
+
+  let remaining = seconds;
+  votingTimerDisplay.textContent = `Discuss and vote — ${remaining}s remaining`;
+  votingCountdownInterval = setInterval(() => {
     remaining -= 1;
-    if (remaining > 0) {
-      discussionTimerDisplay.textContent = `Discuss! Voting opens in ${remaining}s`;
-    } else {
-      discussionTimerDisplay.textContent = "Voting is open";
-      votingPanel.hidden = false;
-      clearInterval(discussionInterval);
-    }
+    votingTimerDisplay.textContent =
+      remaining > 0 ? `Discuss and vote — ${remaining}s remaining` : "Time's up";
+    if (remaining <= 0) clearInterval(votingCountdownInterval);
   }, 1000);
 }
 
-function enterRevealScreen(data) {
-  if (discussionInterval) clearInterval(discussionInterval);
+let revealedCharacterName = null;
 
-  revealText.textContent = `The imposter was ${data.imposter_name}. The character was ${data.character} (${data.anime_title}).`;
-  newRoundBtn.hidden = myId !== hostId;
+function handleRoundReveal(data) {
+  if (votingCountdownInterval) clearInterval(votingCountdownInterval);
 
+  let text;
+  if (data.reason === "disconnect" && !data.ejected_id) {
+    text = "A player disconnected, changing the balance of the game.";
+  } else if (data.tie) {
+    text = "The vote was tied — no one was ejected.";
+  } else {
+    text = `${data.ejected_name} was ejected — they were ${data.was_imposter ? "an IMPOSTER" : "not an imposter"}.`;
+  }
+
+  if (data.game_over) {
+    const outcome = data.winner === "crew" ? "Crew wins!" : "The imposters win!";
+    text += ` ${outcome} The imposters were: ${data.all_imposters.join(", ")}. The character was ${data.character} (${data.anime_title}).`;
+    newRoundBtn.hidden = myId !== hostId;
+    nextRoundLoading.hidden = true;
+
+    // The character is only ever revealed at game-over, never mid-game, so
+    // this feature only makes sense to offer here -- and it's reset fresh
+    // for each new game-over, not carried over from a previous game.
+    revealedCharacterName = data.character;
+    characterDetailsBlock.hidden = false;
+    viewDetailsBtn.hidden = false;
+    viewDetailsBtn.disabled = false;
+    detailsLoading.hidden = true;
+    detailsError.hidden = true;
+    detailsPanel.hidden = true;
+  } else {
+    text += " Next round starting soon...";
+    newRoundBtn.hidden = true;
+    nextRoundLoading.hidden = false;
+    characterDetailsBlock.hidden = true;
+  }
+
+  revealText.textContent = text;
   showScreen("screen-reveal");
 }
 
+viewDetailsBtn.addEventListener("click", async () => {
+  viewDetailsBtn.disabled = true;
+  detailsError.hidden = true;
+  detailsPanel.hidden = true;
+  detailsLoading.hidden = false;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), DETAILS_FETCH_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(
+      `/api/character-details?character=${encodeURIComponent(revealedCharacterName)}`,
+      { signal: controller.signal }
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || "Couldn't load extra details right now.");
+    }
+    const details = await res.json();
+    detailsLoading.hidden = true;
+    if (details.image_url) {
+      detailsImage.src = details.image_url;
+      detailsImage.hidden = false;
+    } else {
+      detailsImage.hidden = true;
+    }
+    detailsAbout.textContent = details.about;
+    detailsPanel.hidden = false;
+  } catch (err) {
+    detailsLoading.hidden = true;
+    const timedOut = err.name === "AbortError";
+    detailsError.textContent = timedOut
+      ? "Couldn't load extra details right now — the request took too long. Jikan (the anime database) might be temporarily unavailable."
+      : "Couldn't load extra details right now — Jikan (the anime database) might be temporarily unavailable.";
+    detailsError.hidden = false;
+  } finally {
+    clearTimeout(timeoutId);
+    viewDetailsBtn.disabled = false;
+  }
+});
+
 newRoundBtn.addEventListener("click", () => {
+  newRoundBtn.disabled = true;
+  newRoundLoading.hidden = false;
   socket.send(JSON.stringify({ type: "new_round" }));
 });

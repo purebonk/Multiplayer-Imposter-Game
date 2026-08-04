@@ -63,6 +63,14 @@
             </select>
           </label>
           <label>
+            Number of imposters:
+            <select id="imposter-count-select">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+            </select>
+          </label>
+          <label>
             <input type="checkbox" id="imposter-hint-checkbox" checked />
             Give imposter a hint
           </label>
@@ -72,34 +80,53 @@
 
       <p id="host-hint" class="error"></p>
       <button id="start-game-btn" hidden>Start Game</button>
+      <p id="starting-loading" hidden>Starting round...</p>
     </section>
 
     <section id="screen-hints" class="screen" hidden>
+      <p id="game-status-bar"></p>
       <h2 id="turn-heading"></h2>
       <p id="turn-timer-display"></p>
       <p id="role-banner"></p>
-      <input id="hint-input" placeholder="One-word hint" />
-      <button id="hint-submit-btn">Submit Hint</button>
+      <form id="hint-form">
+        <input id="hint-input" placeholder="One-word hint" />
+        <button id="hint-submit-btn" type="submit">Submit Hint</button>
+      </form>
       <h3>Hints so far</h3>
       <ul id="hints-so-far"></ul>
     </section>
 
     <section id="screen-voting" class="screen" hidden>
-      <h2>Discussion</h2>
+      <p id="game-status-bar-voting"></p>
+      <h2>Hints This Round</h2>
       <ul id="hints-list"></ul>
-      <p id="discussion-timer-display"></p>
+      <p id="voting-timer-display"></p>
 
-      <div id="voting-panel" hidden>
-        <h2>Vote for the Imposter</h2>
+      <div id="voting-panel">
+        <h2>Vote to Eject</h2>
         <ul id="vote-list"></ul>
         <p id="vote-progress"></p>
+        <p id="spectator-note" hidden>You've been ejected — you can watch, but you can't vote.</p>
       </div>
     </section>
 
     <section id="screen-reveal" class="screen" hidden>
       <h2>Reveal</h2>
       <p id="reveal-text"></p>
+      <p id="next-round-loading" hidden>Next round starting...</p>
+
+      <div id="character-details-block" hidden>
+        <button id="view-details-btn">View Character Details</button>
+        <p id="details-loading" hidden>Loading...</p>
+        <p id="details-error" class="error" hidden></p>
+        <div id="details-panel" hidden>
+          <img id="details-image" alt="" />
+          <p id="details-about"></p>
+        </div>
+      </div>
+
       <button id="new-round-btn" hidden>New Round</button>
+      <p id="new-round-loading" hidden>Starting round...</p>
     </section>
   </main>
 
