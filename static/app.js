@@ -1,10 +1,14 @@
 const screens = document.querySelectorAll(".screen");
 
+const nameForm = document.getElementById("name-form");
+const nameInput = document.getElementById("name-input");
+const nameError = document.getElementById("name-error");
+
+const homePlayerName = document.getElementById("home-player-name");
 const createBtn = document.getElementById("create-btn");
-const roomCodeDisplay = document.getElementById("room-code-display");
+const joinForm = document.getElementById("join-form");
 const joinBtn = document.getElementById("join-btn");
 const joinCodeInput = document.getElementById("join-code-input");
-const joinNameInput = document.getElementById("join-name-input");
 const joinError = document.getElementById("join-error");
 
 const lobbyRoomCode = document.getElementById("lobby-room-code");
@@ -13,6 +17,7 @@ const settingsHostControls = document.getElementById("settings-host-controls");
 const settingsReadonly = document.getElementById("settings-readonly");
 const timerSelect = document.getElementById("timer-select");
 const difficultySelect = document.getElementById("difficulty-select");
+const imposterHintCheckbox = document.getElementById("imposter-hint-checkbox");
 const hostHint = document.getElementById("host-hint");
 const startGameBtn = document.getElementById("start-game-btn");
 
@@ -35,13 +40,20 @@ const newRoundBtn = document.getElementById("new-round-btn");
 const MIN_PLAYERS = 3;
 const DISCUSSION_SECONDS = 20;
 
+// One random ID per page load (per tab). This is what lets the server tell
+// "this tab tried to join again" apart from "a different tab/device joined"
+// — two independent WebSocket connections otherwise look identical to it.
+const tabSessionId = crypto.randomUUID();
+
 let socket = null;
+let myName = "";
 let myId = null;
 let hostId = null;
 let players = [];
 let myRoomCode = "";
 let timerSeconds = 30;
 let difficulty = "easy";
+let giveImposterHint = true;
 
 let turnCountdownInterval = null;
 let discussionInterval = null;
@@ -50,31 +62,40 @@ function showScreen(id) {
   for (const s of screens) s.hidden = s.id !== id;
 }
 
-function isOnHomeScreen() {
-  return !document.getElementById("screen-home").hidden;
+function isBeforeRoomJoin() {
+  return document.getElementById("screen-lobby").hidden
+    && document.getElementById("screen-hints").hidden
+    && document.getElementById("screen-voting").hidden
+    && document.getElementById("screen-reveal").hidden;
 }
 
-createBtn.addEventListener("click", async () => {
-  const res = await fetch("/api/rooms", { method: "POST" });
-  const data = await res.json();
-  roomCodeDisplay.textContent = `Room code: ${data.room_code}`;
-  joinCodeInput.value = data.room_code;
-});
-
-joinBtn.addEventListener("click", () => {
-  const code = joinCodeInput.value.trim().toUpperCase();
-  const name = joinNameInput.value.trim() || "Player";
-  joinError.textContent = "";
-
-  if (!code) {
-    joinError.textContent = "Enter a room code first.";
+nameForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const name = nameInput.value.trim();
+  nameError.textContent = "";
+  if (!name) {
+    nameError.textContent = "Enter a name first.";
     return;
   }
+  myName = name;
+  homePlayerName.textContent = myName;
+  showScreen("screen-home");
+});
+
+function connectToRoom(code) {
+  // Guards against a double-click (or any other path) opening a second
+  // WebSocket while one is already live — the client-side half of
+  // preventing duplicate joins; see main.py for the server-side half,
+  // which is the part that actually can't be bypassed.
+  if (socket && socket.readyState <= WebSocket.OPEN) return;
 
   myRoomCode = code;
+  createBtn.disabled = true;
+  joinBtn.disabled = true;
+
   const protocol = location.protocol === "https:" ? "wss" : "ws";
   socket = new WebSocket(
-    `${protocol}://${location.host}/ws/${code}?name=${encodeURIComponent(name)}`
+    `${protocol}://${location.host}/ws/${code}?name=${encodeURIComponent(myName)}&session_id=${tabSessionId}`
   );
 
   socket.addEventListener("message", (event) => {
@@ -82,10 +103,32 @@ joinBtn.addEventListener("click", () => {
   });
 
   socket.addEventListener("close", () => {
-    if (!isOnHomeScreen()) {
+    createBtn.disabled = false;
+    joinBtn.disabled = false;
+    if (!isBeforeRoomJoin()) {
       alert("Disconnected from the room.");
     }
   });
+}
+
+createBtn.addEventListener("click", async () => {
+  createBtn.disabled = true;
+  const res = await fetch("/api/rooms", { method: "POST" });
+  const data = await res.json();
+  connectToRoom(data.room_code);
+});
+
+joinForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const code = joinCodeInput.value.trim().toUpperCase();
+  joinError.textContent = "";
+
+  if (!code) {
+    joinError.textContent = "Enter a room code first.";
+    return;
+  }
+
+  connectToRoom(code);
 });
 
 function handleMessage(data) {
@@ -96,6 +139,7 @@ function handleMessage(data) {
       players = data.players;
       timerSeconds = data.timer_seconds;
       difficulty = data.difficulty;
+      giveImposterHint = data.give_imposter_hint;
       renderLobby();
       showScreen("screen-lobby");
       break;
@@ -108,6 +152,7 @@ function handleMessage(data) {
     case "settings_updated":
       timerSeconds = data.timer_seconds;
       difficulty = data.difficulty;
+      giveImposterHint = data.give_imposter_hint;
       renderLobby();
       break;
     case "game_started":
@@ -129,7 +174,7 @@ function handleMessage(data) {
       enterRevealScreen(data);
       break;
     case "error":
-      if (isOnHomeScreen()) {
+      if (isBeforeRoomJoin()) {
         joinError.textContent = data.message;
       } else {
         alert(data.message);
@@ -156,9 +201,11 @@ function renderLobby() {
   if (isHost) {
     timerSelect.value = timerSeconds === null ? "none" : String(timerSeconds);
     difficultySelect.value = difficulty;
+    imposterHintCheckbox.checked = giveImposterHint;
   } else {
     const timerLabel = timerSeconds === null ? "No limit" : `${timerSeconds}s`;
-    settingsReadonly.textContent = `Timer: ${timerLabel} · Difficulty: ${difficulty}`;
+    const hintLabel = giveImposterHint ? "on" : "off";
+    settingsReadonly.textContent = `Timer: ${timerLabel} · Difficulty: ${difficulty} · Imposter hint: ${hintLabel}`;
   }
 
   startGameBtn.hidden = !isHost;
@@ -178,12 +225,14 @@ function sendSettingsUpdate() {
       type: "update_settings",
       timer_seconds: newTimerSeconds,
       difficulty: difficultySelect.value,
+      give_imposter_hint: imposterHintCheckbox.checked,
     })
   );
 }
 
 timerSelect.addEventListener("change", sendSettingsUpdate);
 difficultySelect.addEventListener("change", sendSettingsUpdate);
+imposterHintCheckbox.addEventListener("change", sendSettingsUpdate);
 
 startGameBtn.addEventListener("click", () => {
   socket.send(JSON.stringify({ type: "start_game" }));
@@ -192,10 +241,21 @@ startGameBtn.addEventListener("click", () => {
 function enterHintsScreen(data) {
   hintsSoFar.innerHTML = "";
   hintInput.value = "";
+  // Locked by default until this player's own turn_started arrives — without
+  // this, the input sits enabled for everyone in the gap between
+  // game_started and the first turn_started broadcast, since nothing else
+  // disables it. The server always rejected an out-of-turn submit_hint, but
+  // the input looking clickable for everyone is what actually created the
+  // "why is it everyone's turn at once" confusion.
+  hintInput.disabled = true;
+  hintSubmitBtn.disabled = true;
 
   if (data.your_role === "imposter") {
-    const hint = data.hint;
-    roleBanner.textContent = `You are the IMPOSTER. Clue: ${hint.role_hint}, genres: ${hint.genres.join(", ")}. Bluff a one-word hint on your turn!`;
+    if (data.hint) {
+      roleBanner.textContent = `You are the IMPOSTER. Clue: ${data.hint.role_hint}, genres: ${data.hint.genres.join(", ")}. Bluff a one-word hint on your turn!`;
+    } else {
+      roleBanner.textContent = "You are the IMPOSTER. No hint this round — bluff carefully!";
+    }
   } else {
     roleBanner.textContent = `Character: ${data.character} (${data.anime_title})`;
   }
@@ -261,7 +321,9 @@ function enterVotingScreen(hints) {
 
   votingPanel.hidden = true;
   voteList.innerHTML = "";
-  for (const p of players) {
+  // The server is what actually blocks a self-vote (game.py submit_vote) —
+  // this is just not offering a button that would always get rejected.
+  for (const p of players.filter((p) => p.id !== myId)) {
     const li = document.createElement("li");
     const btn = document.createElement("button");
     btn.textContent = `Vote ${p.name}`;

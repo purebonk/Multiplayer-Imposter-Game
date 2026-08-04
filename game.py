@@ -8,21 +8,33 @@ MIN_PLAYERS = 3
 NO_HINT_PLACEHOLDER = "(no hint given)"
 
 
-async def update_settings(room: Room, player_id: str, timer_seconds, difficulty: str) -> None:
+async def update_settings(
+    room: Room, player_id: str, timer_seconds, difficulty: str, give_imposter_hint
+) -> None:
     if player_id != room.host_id:
         await room.send_to(player_id, {"type": "error", "message": "Only the host can change settings."})
         return
     if room.state != RoomState.LOBBY:
         await room.send_to(player_id, {"type": "error", "message": "Can't change settings after starting."})
         return
-    if timer_seconds not in TIMER_OPTIONS or difficulty not in DIFFICULTY_OPTIONS:
+    if (
+        timer_seconds not in TIMER_OPTIONS
+        or difficulty not in DIFFICULTY_OPTIONS
+        or not isinstance(give_imposter_hint, bool)
+    ):
         await room.send_to(player_id, {"type": "error", "message": "Invalid settings."})
         return
 
     room.timer_seconds = timer_seconds
     room.difficulty = difficulty
+    room.give_imposter_hint = give_imposter_hint
     await room.broadcast(
-        {"type": "settings_updated", "timer_seconds": room.timer_seconds, "difficulty": room.difficulty}
+        {
+            "type": "settings_updated",
+            "timer_seconds": room.timer_seconds,
+            "difficulty": room.difficulty,
+            "give_imposter_hint": room.give_imposter_hint,
+        }
     )
 
 
@@ -94,11 +106,6 @@ async def _begin_round(room: Room, character_result: dict) -> None:
     room.turn_index = 0
     room.state = RoomState.HINTS
 
-    imposter_hint = {
-        "genres": character_result["genres"],
-        "role_hint": "a main character" if character_result["character_role"] == "Main" else "a supporting character",
-    }
-
     for pid in connected_ids:
         is_imposter = pid == imposter_id
         payload = {
@@ -112,7 +119,18 @@ async def _begin_round(room: Room, character_result: dict) -> None:
             # much as naming the character would. Genre + how central the
             # role is gives enough to bluff without being a giveaway.
             payload["character"] = None
-            payload["hint"] = imposter_hint
+            # Omit the "hint" key entirely when the host turned it off,
+            # rather than sending an empty/null value — the field's mere
+            # presence shouldn't imply anything either way.
+            if room.give_imposter_hint:
+                payload["hint"] = {
+                    "genres": character_result["genres"],
+                    "role_hint": (
+                        "a main character"
+                        if character_result["character_role"] == "Main"
+                        else "a supporting character"
+                    ),
+                }
         else:
             payload["character"] = room.character_name
             payload["anime_title"] = room.anime_title
@@ -191,6 +209,9 @@ async def _reveal_hints_and_enter_voting(room: Room) -> None:
 
 async def submit_vote(room: Room, player_id: str, target_id: str) -> None:
     if room.state != RoomState.VOTING or player_id not in room.players or target_id not in room.players:
+        return
+    if player_id == target_id:
+        await room.send_to(player_id, {"type": "error", "message": "You can't vote for yourself."})
         return
 
     room.votes[player_id] = target_id

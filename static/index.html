@@ -10,18 +10,31 @@
   <main>
     <h1>Anime Imposter</h1>
 
-    <section id="screen-home" class="screen">
+    <section id="screen-name" class="screen">
+      <div class="card">
+        <h2>What's your name?</h2>
+        <form id="name-form">
+          <input id="name-input" placeholder="Your name" maxlength="20" />
+          <button type="submit">Continue</button>
+        </form>
+        <p id="name-error" class="error"></p>
+      </div>
+    </section>
+
+    <section id="screen-home" class="screen" hidden>
+      <p>Playing as <strong id="home-player-name"></strong></p>
+
       <div class="card">
         <h2>Create a Room</h2>
         <button id="create-btn">Create Room</button>
-        <p id="room-code-display" class="code-display"></p>
       </div>
 
       <div class="card">
         <h2>Join a Room</h2>
-        <input id="join-name-input" placeholder="Your name" />
-        <input id="join-code-input" placeholder="Room code" maxlength="4" />
-        <button id="join-btn">Join Room</button>
+        <form id="join-form">
+          <input id="join-code-input" placeholder="Room code" maxlength="4" />
+          <button id="join-btn" type="submit">Join Room</button>
+        </form>
         <p id="join-error" class="error"></p>
       </div>
     </section>
@@ -48,6 +61,10 @@
               <option value="easy" selected>Easy</option>
               <option value="hard">Hard</option>
             </select>
+          </label>
+          <label>
+            <input type="checkbox" id="imposter-hint-checkbox" checked />
+            Give imposter a hint
           </label>
         </div>
         <p id="settings-readonly" hidden></p>

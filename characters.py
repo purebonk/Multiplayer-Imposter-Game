@@ -1,3 +1,4 @@
+import asyncio
 import random
 
 import httpx
@@ -63,7 +64,13 @@ async def fetch_random_character(difficulty: str = "easy") -> dict:
     random.shuffle(pool)
 
     async with httpx.AsyncClient(timeout=10.0) as client:
-        for anime in pool:
+        for i, anime in enumerate(pool):
+            if i > 0:
+                # Jikan is rate-limited to ~3 req/sec. Without this, a couple
+                # of real outages early in the loop cause every remaining
+                # attempt to fail on 429 instead of the genuine error, wiping
+                # out the whole pool for what should've been a minor blip.
+                await asyncio.sleep(0.4)
             try:
                 entries = await _get_character_entries(client, anime["mal_id"])
             except (httpx.HTTPError, KeyError):

@@ -9,7 +9,12 @@ body {
   padding: 0 1rem;
 }
 
-.screen {
+/* Scoped to :not([hidden]) deliberately: a bare `.screen { display: flex }`
+   rule has the same specificity as the browser's built-in
+   `[hidden] { display: none }` rule, and author CSS wins ties over the
+   user-agent stylesheet — so an unscoped rule here silently cancels the
+   hidden attribute and every screen renders at once regardless of JS state. */
+.screen:not([hidden]) {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -50,7 +55,11 @@ main li {
   border-bottom: 1px solid #8882;
 }
 
-#settings-host-controls {
+/* Same bug class as .screen above, worse here: an ID selector outranks
+   [hidden] outright (no tie needed), so this rule categorically overrode
+   `hidden` on this div, leaving the interactive settings controls visible
+   and clickable for non-host players regardless of JS state. */
+#settings-host-controls:not([hidden]) {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;

@@ -28,6 +28,7 @@ class Player:
     id: str
     name: str
     websocket: WebSocket
+    session_id: str
 
 
 @dataclass
@@ -40,6 +41,7 @@ class Room:
 
     timer_seconds: Optional[int] = 30
     difficulty: str = "easy"
+    give_imposter_hint: bool = True
 
     imposter_id: Optional[str] = None
     imposter_name: Optional[str] = None
@@ -64,8 +66,15 @@ class Room:
         return None
 
     async def broadcast(self, message: dict) -> None:
+        # A send failing for one recipient (their socket died but hasn't been
+        # cleaned up yet) must not stop the loop early — otherwise whoever
+        # comes after them in iteration order silently never gets this
+        # message at all, even though they're still connected.
         for player in list(self.players.values()):
-            await player.websocket.send_json(message)
+            try:
+                await player.websocket.send_json(message)
+            except Exception:
+                pass
 
     async def send_to(self, player_id: str, message: dict) -> None:
         player = self.players.get(player_id)
@@ -89,6 +98,12 @@ class Room:
 class RoomManager:
     def __init__(self) -> None:
         self._rooms: dict[str, Room] = {}
+        # One browser tab (one session_id, generated client-side on page
+        # load) can only ever occupy a slot in one room across the whole
+        # server. This is the actual enforcement for "no duplicate joins" —
+        # the client-side guard in app.js is just UX politeness on top of it,
+        # since nothing stops a second WebSocket connection from trying.
+        self._session_rooms: dict[str, str] = {}
 
     def create_room(self) -> Room:
         code = self._generate_unique_code()
@@ -101,6 +116,15 @@ class RoomManager:
 
     def remove_room(self, code: str) -> None:
         self._rooms.pop(code, None)
+
+    def session_room_code(self, session_id: str) -> Optional[str]:
+        return self._session_rooms.get(session_id)
+
+    def register_session(self, session_id: str, room_code: str) -> None:
+        self._session_rooms[session_id] = room_code
+
+    def release_session(self, session_id: str) -> None:
+        self._session_rooms.pop(session_id, None)
 
     def _generate_unique_code(self) -> str:
         while True:
