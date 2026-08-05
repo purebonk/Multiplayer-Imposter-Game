@@ -696,10 +696,18 @@ form input { flex: 1; min-width: 0; }
 
 /* ---------------------------- round history ---------------------------- */
 
-#round-history {
+#round-history,
+#previous-rounds {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
+}
+
+/* Kept scrollable so a long game's history can't push the vote buttons
+   off the bottom of the screen mid-vote. */
+#previous-rounds {
+  max-height: 240px;
+  overflow-y: auto;
 }
 
 .history-round {

@@ -14,6 +14,13 @@ TIMER_OPTIONS = (15, 30, 60, None)
 DIFFICULTY_OPTIONS = ("easy", "hard")
 MAX_IMPOSTERS = 3
 
+# How much the imposter is given to work with, borrowed from the Undercover /
+# Mr. White genre:
+#   blind   -- no character at all; pure bluffing (the original behaviour)
+#   similar -- a DIFFERENT character from the same anime, so their hints sound
+#              plausible and the deduction becomes much subtler
+IMPOSTER_MODE_OPTIONS = ("blind", "similar")
+
 # Avatars are referenced by a short id ("goku"), never by URL -- the client
 # never gets to tell the server what image to show, it only picks from this
 # roster. AVATAR_LOOKUP is what validation checks against.
@@ -56,6 +63,9 @@ class RoomState(str, Enum):
     STARTING = "starting"
     HINTS = "hints"
     VOTING = "voting"
+    # A just-ejected imposter naming the character to steal the win. Sits
+    # between VOTING and REVEAL; everyone else is spectating a countdown.
+    GUESSING = "guessing"
     REVEAL = "reveal"
 
 
@@ -87,6 +97,8 @@ class Room:
     difficulty: str = "easy"
     give_imposter_hint: bool = True
     num_imposters: int = 1
+    imposter_mode: str = "blind"
+    last_chance_guess: bool = True
 
     character_name: Optional[str] = None
     anime_title: Optional[str] = None
@@ -114,6 +126,13 @@ class Room:
     turn_index: int = 0
     turn_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
     voting_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
+
+    # Last-chance guess. `pending_reveal` parks the round_reveal payload that
+    # was about to be broadcast so the guess outcome can be folded into it
+    # rather than sending two conflicting reveals.
+    guesser_id: Optional[str] = None
+    pending_reveal: Optional[dict] = None
+    guess_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
 
     def player_summaries(self) -> list[dict]:
         return [player_summary(p) for p in self.players.values()]
@@ -154,6 +173,9 @@ class Room:
         if self.voting_task is not None:
             self.voting_task.cancel()
             self.voting_task = None
+        if self.guess_task is not None:
+            self.guess_task.cancel()
+            self.guess_task = None
 
     def reset_round_state(self) -> None:
         """Clears per-round state (hints/votes/turns). Does NOT touch
@@ -163,6 +185,8 @@ class Room:
         self.votes.clear()
         self.turn_order = []
         self.turn_index = 0
+        self.guesser_id = None
+        self.pending_reveal = None
 
     def reset_game_state(self) -> None:
         """Clears everything tying this room to a specific game, for a fresh

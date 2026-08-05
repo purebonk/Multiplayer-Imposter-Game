@@ -123,6 +123,8 @@ async def websocket_endpoint(
             "difficulty": room.difficulty,
             "give_imposter_hint": room.give_imposter_hint,
             "num_imposters": room.num_imposters,
+            "imposter_mode": room.imposter_mode,
+            "last_chance_guess": room.last_chance_guess,
         },
     )
     await room.broadcast(
@@ -133,6 +135,9 @@ async def websocket_endpoint(
             "host_id": room.host_id,
         }
     )
+    # Arrivals can make a previously-invalid imposter count valid (or an
+    # over-ambitious one still too high), so keep the lobby setting honest.
+    await game.clamp_imposter_count(room)
 
     try:
         while True:
@@ -152,7 +157,11 @@ async def websocket_endpoint(
                     message.get("difficulty"),
                     message.get("give_imposter_hint"),
                     message.get("num_imposters"),
+                    message.get("imposter_mode"),
+                    message.get("last_chance_guess"),
                 )
+            elif msg_type == "submit_guess":
+                await game.submit_guess(room, player_id, message.get("guess", ""))
             elif msg_type == "submit_hint":
                 await game.submit_hint(room, player_id, message.get("hint", ""))
             elif msg_type == "submit_vote":

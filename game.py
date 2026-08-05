@@ -5,6 +5,7 @@ import random
 from characters import get_character
 from rooms import (
     DIFFICULTY_OPTIONS,
+    IMPOSTER_MODE_OPTIONS,
     TIMER_OPTIONS,
     Room,
     RoomState,
@@ -15,10 +16,18 @@ from rooms import (
 MIN_PLAYERS = 3
 NO_HINT_PLACEHOLDER = "(no hint given)"
 ROUND_TRANSITION_DELAY = 4  # seconds to let players read the elimination reveal before the next round starts
+GUESS_SECONDS = 20  # how long a just-ejected imposter gets to name the character
 
 
 async def update_settings(
-    room: Room, player_id: str, timer_seconds, difficulty: str, give_imposter_hint, num_imposters
+    room: Room,
+    player_id: str,
+    timer_seconds,
+    difficulty: str,
+    give_imposter_hint,
+    num_imposters,
+    imposter_mode,
+    last_chance_guess,
 ) -> None:
     if player_id != room.host_id:
         await room.send_to(player_id, {"type": "error", "message": "Only the host can change settings."})
@@ -30,7 +39,13 @@ async def update_settings(
         timer_seconds not in TIMER_OPTIONS
         or difficulty not in DIFFICULTY_OPTIONS
         or not isinstance(give_imposter_hint, bool)
-        or num_imposters not in valid_imposter_counts(len(room.players))
+        # Validated against the smallest startable game rather than the
+        # current headcount, so a host alone in a fresh room can still
+        # configure it while waiting for people. _begin_game re-clamps
+        # against the real headcount, which is the check that matters.
+        or num_imposters not in valid_imposter_counts(max(len(room.players), MIN_PLAYERS))
+        or imposter_mode not in IMPOSTER_MODE_OPTIONS
+        or not isinstance(last_chance_guess, bool)
     ):
         await room.send_to(player_id, {"type": "error", "message": "Invalid settings."})
         return
@@ -39,6 +54,8 @@ async def update_settings(
     room.difficulty = difficulty
     room.give_imposter_hint = give_imposter_hint
     room.num_imposters = num_imposters
+    room.imposter_mode = imposter_mode
+    room.last_chance_guess = last_chance_guess
     await room.broadcast(_settings_payload(room))
 
 
@@ -49,6 +66,8 @@ def _settings_payload(room: Room) -> dict:
         "difficulty": room.difficulty,
         "give_imposter_hint": room.give_imposter_hint,
         "num_imposters": room.num_imposters,
+        "imposter_mode": room.imposter_mode,
+        "last_chance_guess": room.last_chance_guess,
     }
 
 
@@ -132,7 +151,12 @@ async def _begin_game(room: Room, character_result: dict) -> None:
     # Recompute from room.players (not a snapshot taken before the fetch)
     # so anyone who disconnected during the API call can't become imposter.
     connected_ids = list(room.players.keys())
-    num_imposters = min(room.num_imposters, len(connected_ids) - 1)  # defensive floor, shouldn't trigger given validation
+    # Authoritative clamp: settings may have been chosen when the room was a
+    # different size (or before anyone else arrived), and starting a 3-player
+    # game with 2 imposters would hand them an instant win on parity.
+    valid = valid_imposter_counts(len(connected_ids))
+    num_imposters = room.num_imposters if room.num_imposters in valid else (max(valid) if valid else 1)
+    room.num_imposters = num_imposters
     imposter_ids = set(random.sample(connected_ids, k=num_imposters))
     room.imposter_ids = imposter_ids
     room.imposter_profiles = {pid: player_summary(room.players[pid]) for pid in imposter_ids}
@@ -149,26 +173,37 @@ async def _begin_game(room: Room, character_result: dict) -> None:
             "timer_seconds": room.timer_seconds,
         }
         if is_imposter:
-            # Deliberately withhold anime_title here: with only ~20 anime in
-            # the pool, naming the show narrows the character down almost as
-            # much as naming the character would. Genre + how central the
-            # role is gives enough to bluff without being a giveaway.
-            payload["character"] = None
             # Imposters know each other -- otherwise multiple imposters can't
             # coordinate their bluffing at all, which defeats the point of
             # having more than one.
             payload["teammates"] = [
                 room.imposter_profiles[other]["name"] for other in imposter_ids if other != pid
             ]
-            if room.give_imposter_hint:
-                payload["hint"] = {
-                    "genres": character_result["genres"],
-                    "role_hint": (
-                        "a main character"
-                        if character_result["character_role"] == "Main"
-                        else "a supporting character"
-                    ),
-                }
+
+            decoy = character_result.get("decoy")
+            if room.imposter_mode == "similar" and decoy:
+                # Undercover-style: a real character from the same show. Their
+                # hints land in the right universe, so crew has to notice a
+                # subtle mismatch rather than obvious flailing. The real
+                # character's name is still never sent to them.
+                payload["character"] = decoy
+                payload["decoy_mode"] = True
+            else:
+                # Deliberately withhold anime_title here: with only ~30 anime in
+                # the pool, naming the show narrows the character down almost as
+                # much as naming the character would. Genre + how central the
+                # role is gives enough to bluff without being a giveaway.
+                payload["character"] = None
+                payload["decoy_mode"] = False
+                if room.give_imposter_hint:
+                    payload["hint"] = {
+                        "genres": character_result["genres"],
+                        "role_hint": (
+                            "a main character"
+                            if character_result["character_role"] == "Main"
+                            else "a supporting character"
+                        ),
+                    }
         else:
             payload["character"] = room.character_name
             payload["anime_title"] = room.anime_title
@@ -316,14 +351,107 @@ async def _resolve_voting(room: Room) -> None:
 
     payload = {"type": "round_reveal", "reason": "vote", "tally": tally, "tie": tie, "game_over": False}
 
-    game_over = False
-    winner = None
-    timed_out = False
     if ejected_id is not None:
         room.eliminated_ids.add(ejected_id)
         payload["ejected_id"] = ejected_id
         payload["ejected_name"] = room.players[ejected_id].name
         payload["was_imposter"] = ejected_id in room.imposter_ids
+
+        # An ejected imposter gets one shot at naming the character. This
+        # hands off to a timed phase rather than awaiting inline: the player
+        # who needs to answer may be the same one whose vote triggered this
+        # call, and their receive loop is blocked until we return.
+        if payload["was_imposter"] and room.last_chance_guess and ejected_id in room.players:
+            await _enter_guess_phase(room, payload, ejected_id)
+            return
+
+    await _conclude_round(room, payload, ejected_id)
+
+
+async def _enter_guess_phase(room: Room, payload: dict, ejected_id: str) -> None:
+    room.state = RoomState.GUESSING
+    room.guesser_id = ejected_id
+    room.pending_reveal = payload
+    await room.broadcast(
+        {
+            "type": "guess_started",
+            "guesser_id": ejected_id,
+            "guesser_name": room.players[ejected_id].name,
+            "seconds": GUESS_SECONDS,
+        }
+    )
+    room.guess_task = asyncio.create_task(_guess_timeout(room, ejected_id))
+
+
+async def _guess_timeout(room: Room, guesser_id: str) -> None:
+    await asyncio.sleep(GUESS_SECONDS)
+    # Stale-task guard, same pattern as the turn/voting timers: only act if
+    # this is still the phase we were started for.
+    if room.state != RoomState.GUESSING or room.guesser_id != guesser_id:
+        return
+    await _finish_guess(room, guess_text=None)
+
+
+async def submit_guess(room: Room, player_id: str, guess: str) -> None:
+    if room.state != RoomState.GUESSING or player_id != room.guesser_id:
+        return
+    await _finish_guess(room, guess_text=(guess or "").strip()[:60])
+
+
+async def _finish_guess(room: Room, guess_text: "str | None") -> None:
+    if room.state != RoomState.GUESSING:
+        return
+    room.cancel_timers()
+    room.state = RoomState.REVEAL
+
+    payload = room.pending_reveal or {
+        "type": "round_reveal", "reason": "vote", "tie": False, "game_over": False
+    }
+    ejected_id = payload.get("ejected_id")
+    correct = bool(guess_text) and _guess_matches(guess_text, room.character_name)
+
+    payload["guess"] = {"text": guess_text, "correct": correct}
+    room.pending_reveal = None
+    room.guesser_id = None
+
+    if correct:
+        # Naming the character outright steals the win, even if ejecting them
+        # would otherwise have ended the game for crew.
+        payload["reason"] = "guess"
+        await room.broadcast(_finalize_game_over(room, payload, "imposters", timed_out=False))
+        return
+
+    await _conclude_round(room, payload, ejected_id)
+
+
+def _normalize_guess(text: str) -> str:
+    return "".join(ch for ch in text.lower() if ch.isalnum() or ch.isspace()).strip()
+
+
+def _guess_matches(guess: str, character_name: "str | None") -> bool:
+    """Deliberately forgiving: a party game shouldn't hinge on whether someone
+    typed "Monkey D. Luffy" instead of "Luffy". Accepts the full name or any
+    single name-part of 3+ characters."""
+    if not character_name:
+        return False
+    guess_norm = _normalize_guess(guess)
+    name_norm = _normalize_guess(character_name)
+    if not guess_norm:
+        return False
+    if guess_norm == name_norm:
+        return True
+    return guess_norm in {part for part in name_norm.split() if len(part) >= 3}
+
+
+async def _conclude_round(room: Room, payload: dict, ejected_id: "str | None") -> None:
+    """Shared tail of a round: win check, round cap, then either end the game
+    or roll into the next round. Reached either straight from voting or after
+    a failed last-chance guess."""
+    game_over = False
+    winner = None
+    timed_out = False
+
+    if ejected_id is not None:
         game_over, winner = _check_win_condition(room)
 
     # A round completing (elimination OR tie) without a resolution is itself
@@ -390,6 +518,13 @@ async def handle_disconnect(room: Room, player_id: str) -> None:
         await clamp_imposter_count(room)
         return
     if not room.players:
+        return
+
+    # The one person who could answer just left -- resolve it as a miss
+    # rather than leaving everyone staring at a countdown.
+    if room.state == RoomState.GUESSING:
+        if player_id == room.guesser_id:
+            await _finish_guess(room, guess_text=None)
         return
 
     if room.state == RoomState.HINTS:

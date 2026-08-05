@@ -56,6 +56,7 @@
           <span id="lobby-room-code" title="Click to copy"></span>
         </div>
         <p class="copy-hint">Tap the code to copy it</p>
+        <button id="copy-link-btn" class="ghost">🔗 Copy invite link</button>
       </div>
 
       <div class="card">
@@ -90,9 +91,20 @@
               <option value="3">3</option>
             </select>
           </label>
+          <label>
+            Imposter gets
+            <select id="imposter-mode-select">
+              <option value="blind" selected>No clue</option>
+              <option value="similar">A similar character</option>
+            </select>
+          </label>
           <label class="checkbox-label">
             <input type="checkbox" id="imposter-hint-checkbox" checked />
-            Give imposter a hint
+            Give imposter a genre hint
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="last-chance-checkbox" checked />
+            Ejected imposter can guess to win
           </label>
         </div>
         <p id="settings-readonly" class="muted" hidden></p>
@@ -131,11 +143,33 @@
         <div id="voting-player-cards" class="player-grid"></div>
       </div>
 
+      <div id="previous-rounds-card" class="card" hidden>
+        <h3>Earlier rounds</h3>
+        <div id="previous-rounds"></div>
+      </div>
+
       <div id="voting-panel" class="card">
         <h3>Cast your vote</h3>
         <ul id="vote-list"></ul>
         <p id="vote-progress" class="muted"></p>
         <p id="spectator-note" class="muted" hidden>You've been ejected — you can watch, but you can't vote.</p>
+      </div>
+    </section>
+
+    <section id="screen-guess" class="screen" hidden>
+      <div class="outcome-banner neutral">
+        <span class="outcome-emoji">🎯</span>
+        <h2 id="guess-title" class="outcome-title"></h2>
+        <p id="guess-sub" class="outcome-sub"></p>
+      </div>
+
+      <div class="card">
+        <p id="guess-timer" class="timer-display"></p>
+        <form id="guess-form">
+          <input id="guess-input" placeholder="Name the character…" maxlength="60" />
+          <button id="guess-submit-btn" type="submit">Guess</button>
+        </form>
+        <p id="guess-waiting" class="muted" hidden></p>
       </div>
     </section>
 

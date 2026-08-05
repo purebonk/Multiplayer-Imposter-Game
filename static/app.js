@@ -14,6 +14,9 @@ const joinCodeInput = document.getElementById("join-code-input");
 const joinError = document.getElementById("join-error");
 
 const lobbyRoomCode = document.getElementById("lobby-room-code");
+const copyLinkBtn = document.getElementById("copy-link-btn");
+const previousRoundsCard = document.getElementById("previous-rounds-card");
+const previousRounds = document.getElementById("previous-rounds");
 const lobbyPlayerCards = document.getElementById("lobby-player-cards");
 const settingsHostControls = document.getElementById("settings-host-controls");
 const settingsReadonly = document.getElementById("settings-readonly");
@@ -21,6 +24,16 @@ const timerSelect = document.getElementById("timer-select");
 const difficultySelect = document.getElementById("difficulty-select");
 const imposterCountSelect = document.getElementById("imposter-count-select");
 const imposterHintCheckbox = document.getElementById("imposter-hint-checkbox");
+const imposterModeSelect = document.getElementById("imposter-mode-select");
+const lastChanceCheckbox = document.getElementById("last-chance-checkbox");
+
+const guessTitle = document.getElementById("guess-title");
+const guessSub = document.getElementById("guess-sub");
+const guessTimer = document.getElementById("guess-timer");
+const guessForm = document.getElementById("guess-form");
+const guessInput = document.getElementById("guess-input");
+const guessSubmitBtn = document.getElementById("guess-submit-btn");
+const guessWaiting = document.getElementById("guess-waiting");
 const hostHint = document.getElementById("host-hint");
 const startGameBtn = document.getElementById("start-game-btn");
 const startingLoading = document.getElementById("starting-loading");
@@ -87,6 +100,10 @@ let timerSeconds = 30;
 let difficulty = "easy";
 let giveImposterHint = true;
 let numImposters = 1;
+let imposterMode = "blind";
+let lastChanceGuess = true;
+let myDecoyMode = false;
+let guessCountdownInterval = null;
 
 let avatarRoster = [];
 let myAvatarId = null;
@@ -95,6 +112,29 @@ let myAvatarId = null;
 // server will actually accept. Falls back to a minimal emoji-only set if
 // the request fails, so the feature degrades instead of disappearing.
 let reactionOptions = { emojis: ["👀", "🤔", "😂", "💀", "🔥"], phrases: [], maxFreeText: 40 };
+
+/* ------------------------- remembered identity ------------------------- */
+// Declared up here because restoreRememberedName() runs during the initial
+// synchronous pass; consts declared further down would still be in their
+// temporal dead zone and throw.
+const STORAGE_NAME = "animeImposter.name";
+const STORAGE_AVATAR = "animeImposter.avatarId";
+
+function storageGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null; // private mode / storage disabled — just don't remember
+  }
+}
+
+function storageSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* non-fatal */
+  }
+}
 
 // Captured once from game_started and reused every round — the character
 // and role don't change between elimination rounds within the same game.
@@ -166,8 +206,18 @@ async function loadAvatarRoster() {
   }
   if (!avatarRoster.length) return;
 
-  myAvatarId = avatarRoster[Math.floor(Math.random() * avatarRoster.length)].id;
+  // Reuse last session's pick if it's still a valid character, otherwise
+  // random so a first-time player never stares at an empty selection.
+  const remembered = storageGet(STORAGE_AVATAR);
+  myAvatarId = avatarRoster.some((a) => a.id === remembered)
+    ? remembered
+    : avatarRoster[Math.floor(Math.random() * avatarRoster.length)].id;
   renderAvatarPicker();
+}
+
+function restoreRememberedName() {
+  const remembered = storageGet(STORAGE_NAME);
+  if (remembered) nameInput.value = remembered;
 }
 
 function renderAvatarPicker() {
@@ -222,6 +272,7 @@ async function loadReactionOptions() {
 
 loadAvatarRoster();
 loadReactionOptions();
+restoreRememberedName();
 
 /* --------------------------- player cards --------------------------- */
 
@@ -497,6 +548,13 @@ function popReaction(fromId, text, isEmoji) {
 
 /* ------------------------------ flow ------------------------------ */
 
+// An invite link (…/?room=ABCD) drops friends straight onto the join form
+// with the code already filled in, so nobody has to read letters aloud.
+const inviteRoomCode = new URLSearchParams(location.search).get("room");
+if (inviteRoomCode) {
+  joinCodeInput.value = inviteRoomCode.trim().toUpperCase().slice(0, 4);
+}
+
 nameForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const name = nameInput.value.trim();
@@ -506,6 +564,8 @@ nameForm.addEventListener("submit", (event) => {
     return;
   }
   myName = name;
+  storageSet(STORAGE_NAME, myName);
+  if (myAvatarId) storageSet(STORAGE_AVATAR, myAvatarId);
   homePlayerName.textContent = myName;
   showScreen("screen-home");
 });
@@ -581,6 +641,22 @@ lobbyRoomCode.addEventListener("click", async () => {
   }, 1200);
 });
 
+let linkResetTimer = null;
+
+copyLinkBtn.addEventListener("click", async () => {
+  const link = `${location.origin}/?room=${encodeURIComponent(myRoomCode)}`;
+  try {
+    await navigator.clipboard.writeText(link);
+  } catch {
+    return; // clipboard blocked — the code itself is still copyable
+  }
+  copyLinkBtn.textContent = "✅ Link copied!";
+  clearTimeout(linkResetTimer);
+  linkResetTimer = setTimeout(() => {
+    copyLinkBtn.textContent = "🔗 Copy invite link";
+  }, 1400);
+});
+
 /* --------------------------- message handling --------------------------- */
 
 function handleMessage(data) {
@@ -593,6 +669,8 @@ function handleMessage(data) {
       difficulty = data.difficulty;
       giveImposterHint = data.give_imposter_hint;
       numImposters = data.num_imposters;
+      imposterMode = data.imposter_mode;
+      lastChanceGuess = data.last_chance_guess;
       renderLobby();
       showScreen("screen-lobby");
       break;
@@ -607,6 +685,8 @@ function handleMessage(data) {
       difficulty = data.difficulty;
       giveImposterHint = data.give_imposter_hint;
       numImposters = data.num_imposters;
+      imposterMode = data.imposter_mode;
+      lastChanceGuess = data.last_chance_guess;
       renderLobby();
       break;
     case "game_started":
@@ -626,6 +706,9 @@ function handleMessage(data) {
       break;
     case "vote_progress":
       voteProgress.textContent = `${data.voted_count}/${data.total} votes cast`;
+      break;
+    case "guess_started":
+      enterGuessScreen(data);
       break;
     case "round_reveal":
       handleRoundReveal(data);
@@ -665,6 +748,11 @@ function renderLobby() {
     timerSelect.value = timerSeconds === null ? "none" : String(timerSeconds);
     difficultySelect.value = difficulty;
     imposterHintCheckbox.checked = giveImposterHint;
+    imposterModeSelect.value = imposterMode;
+    lastChanceCheckbox.checked = lastChanceGuess;
+    // The genre hint only exists to give a blind imposter something to work
+    // with; in "similar" mode they already have a same-series character.
+    imposterHintCheckbox.disabled = imposterMode === "similar";
 
     const valid = new Set(validImposterCounts(players.length));
     for (const option of imposterCountSelect.options) {
@@ -673,9 +761,10 @@ function renderLobby() {
     imposterCountSelect.value = String(numImposters);
   } else {
     const timerLabel = timerSeconds === null ? "No limit" : `${timerSeconds}s`;
-    const hintLabel = giveImposterHint ? "on" : "off";
+    const modeLabel = imposterMode === "similar" ? "similar character" : "no clue";
     settingsReadonly.textContent =
-      `Timer: ${timerLabel} · Difficulty: ${difficulty} · Imposters: ${numImposters} · Imposter hint: ${hintLabel}`;
+      `Timer: ${timerLabel} · Difficulty: ${difficulty} · Imposters: ${numImposters}`
+      + ` · Imposter gets: ${modeLabel} · Last-chance guess: ${lastChanceGuess ? "on" : "off"}`;
   }
 
   startGameBtn.hidden = !isHost;
@@ -697,6 +786,8 @@ function sendSettingsUpdate() {
       difficulty: difficultySelect.value,
       give_imposter_hint: imposterHintCheckbox.checked,
       num_imposters: parseInt(imposterCountSelect.value, 10),
+      imposter_mode: imposterModeSelect.value,
+      last_chance_guess: lastChanceCheckbox.checked,
     })
   );
 }
@@ -705,6 +796,8 @@ timerSelect.addEventListener("change", sendSettingsUpdate);
 difficultySelect.addEventListener("change", sendSettingsUpdate);
 imposterHintCheckbox.addEventListener("change", sendSettingsUpdate);
 imposterCountSelect.addEventListener("change", sendSettingsUpdate);
+imposterModeSelect.addEventListener("change", sendSettingsUpdate);
+lastChanceCheckbox.addEventListener("change", sendSettingsUpdate);
 
 startGameBtn.addEventListener("click", () => {
   startGameBtn.disabled = true;
@@ -719,6 +812,7 @@ function handleGameStarted(data) {
   myAnimeTitle = data.anime_title || null;
   myHint = data.hint || null;
   myTeammates = data.teammates || [];
+  myDecoyMode = data.decoy_mode === true;
 }
 
 function roleBannerText() {
@@ -726,6 +820,11 @@ function roleBannerText() {
     const teammateText = myTeammates.length
       ? ` Your fellow imposter${myTeammates.length > 1 ? "s" : ""}: ${myTeammates.join(", ")}.`
       : "";
+    if (myDecoyMode) {
+      // They hold a real character from the right series -- the trap is that
+      // it is not the one everyone else has.
+      return `🕵️ You are the IMPOSTER. Your character: ${myCharacter} — but the crew has a DIFFERENT one. Blend in.${teammateText}`;
+    }
     const hintText = myHint
       ? ` Clue: ${myHint.role_hint}, genres: ${myHint.genres.join(", ")}.`
       : " No hint this round — bluff carefully!";
@@ -851,6 +950,7 @@ function enterVotingScreen(hints, votingTimerSeconds) {
   for (const h of hints) hintsByPlayerId[h.player_id] = h.hint;
 
   renderPlayerCards(votingPlayerCards, remainingPlayers, { mode: "voting", allowReactions: true });
+  renderPreviousRounds();
 
   const eliminated = amEliminated();
   spectatorNote.hidden = !eliminated;
@@ -887,6 +987,46 @@ function startVotingCountdown(seconds) {
   );
 }
 
+function enterGuessScreen(data) {
+  if (turnCountdownInterval) clearInterval(turnCountdownInterval);
+  if (votingCountdownInterval) clearInterval(votingCountdownInterval);
+
+  const isMe = data.guesser_id === myId;
+  guessTitle.textContent = isMe ? "You were caught!" : `${data.guesser_name} was caught!`;
+  guessSub.textContent = isMe
+    ? "Name the character to steal the win."
+    : "They get one guess at the character. If they get it, they win.";
+
+  guessForm.hidden = !isMe;
+  guessWaiting.hidden = isMe;
+  guessWaiting.textContent = `Waiting for ${data.guesser_name}…`;
+  guessInput.value = "";
+  guessInput.disabled = false;
+  guessSubmitBtn.disabled = false;
+
+  if (guessCountdownInterval) clearInterval(guessCountdownInterval);
+  guessCountdownInterval = runCountdown(
+    guessTimer,
+    data.seconds,
+    (r) => `⏳ ${r}s to answer`,
+    "No time limit"
+  );
+
+  showScreen("screen-guess");
+  if (isMe) guessInput.focus();
+}
+
+guessForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const guess = guessInput.value.trim();
+  if (!guess) return;
+  socket.send(JSON.stringify({ type: "submit_guess", guess }));
+  guessInput.disabled = true;
+  guessSubmitBtn.disabled = true;
+  guessWaiting.textContent = "Locked in…";
+  guessWaiting.hidden = false;
+});
+
 let revealedCharacterName = null;
 
 function ejectionSummary(data) {
@@ -903,9 +1043,9 @@ function ejectionSummary(data) {
   };
 }
 
-function renderRoundHistory() {
-  roundHistory.innerHTML = "";
-  for (const entry of roundLog) {
+function renderRoundHistory(container, entries) {
+  container.innerHTML = "";
+  for (const entry of entries) {
     if (!entry.hints.length && !entry.outcome) continue;
 
     const block = document.createElement("div");
@@ -943,30 +1083,52 @@ function renderRoundHistory() {
       block.appendChild(out);
     }
 
-    roundHistory.appendChild(block);
+    container.appendChild(block);
   }
+}
+
+function renderPreviousRounds() {
+  // Only rounds already concluded -- showing the in-progress round here would
+  // just duplicate the cards directly above it. This is the deduction aid:
+  // by round 3 nobody remembers what someone said in round 1.
+  const earlier = roundLog.slice(0, -1).filter((e) => e.hints.length);
+  renderRoundHistory(previousRounds, earlier);
+  previousRoundsCard.hidden = earlier.length === 0;
 }
 
 function handleRoundReveal(data) {
   if (votingCountdownInterval) clearInterval(votingCountdownInterval);
+  if (guessCountdownInterval) clearInterval(guessCountdownInterval);
 
   const ejection = ejectionSummary(data);
+  const guess = data.guess;
 
   // Record this round's outcome for the post-game recap before anything else.
   const current = roundLog[roundLog.length - 1];
   if (current && !current.outcome) {
-    current.outcome = data.tie
+    let line = data.tie
       ? "Tied vote — nobody ejected"
       : data.ejected_name
         ? `${data.ejected_name} ejected — ${data.was_imposter ? "imposter" : "crew"}`
         : "A player disconnected";
+    if (guess) {
+      line += guess.text
+        ? ` · guessed “${guess.text}” (${guess.correct ? "correct!" : "wrong"})`
+        : " · ran out of time to guess";
+    }
+    current.outcome = line;
   }
 
   outcomeBanner.classList.remove("crew-win", "imposter-win", "neutral");
 
   if (data.game_over) {
     let emoji, title, sub;
-    if (data.timed_out) {
+    if (data.reason === "guess") {
+      emoji = "🎯";
+      title = "Stolen at the buzzer!";
+      sub = `${data.ejected_name} was ejected — then named the character and took the win.`;
+      outcomeBanner.classList.add("imposter-win");
+    } else if (data.timed_out) {
       emoji = "⏰";
       title = "Crew ran out of time";
       sub = "The imposters survived long enough to win.";
@@ -986,7 +1148,8 @@ function handleRoundReveal(data) {
     outcomeTitle.textContent = title;
     // Who was ejected is spelled out in the roles card below, so the banner
     // only needs the final beat plus why the game ended.
-    outcomeSub.textContent = `${ejection.title}. ${sub}`;
+    outcomeSub.textContent =
+      data.reason === "guess" ? sub : `${ejection.title}. ${sub}`;
 
     const imposters = data.all_imposters || [];
     revealRolesHeading.textContent = imposters.length > 1 ? "The imposters were…" : "The imposter was…";
@@ -997,7 +1160,7 @@ function handleRoundReveal(data) {
     revealCharacterAnime.textContent = data.anime_title;
     revealCharacter.hidden = false;
 
-    renderRoundHistory();
+    renderRoundHistory(roundHistory, roundLog);
     roundHistoryCard.hidden = false;
 
     newRoundBtn.hidden = myId !== hostId;
@@ -1018,7 +1181,11 @@ function handleRoundReveal(data) {
     outcomeBanner.classList.add("neutral");
     outcomeEmoji.textContent = ejection.emoji;
     outcomeTitle.textContent = ejection.title;
-    outcomeSub.textContent = ejection.sub;
+    // A failed last-chance guess is a real beat -- say so, otherwise the
+    // guess phase just silently vanishes for everyone watching.
+    outcomeSub.textContent = guess
+      ? `${ejection.sub} ${guess.text ? `They guessed “${guess.text}” — wrong.` : "They ran out of time."}`
+      : ejection.sub;
 
     revealRoles.hidden = true;
     revealCharacter.hidden = true;

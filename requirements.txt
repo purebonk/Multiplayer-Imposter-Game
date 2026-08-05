@@ -1,3 +1,6 @@
 fastapi
 uvicorn[standard]
 httpx
+# Used only by build_character_pool.py / build_avatar_options.py (the offline
+# one-time data scripts), not by the running server.
+Pillow
