@@ -1,8 +1,16 @@
 import asyncio
+import math
 import random
 
 from characters import get_character
-from rooms import DIFFICULTY_OPTIONS, TIMER_OPTIONS, Room, RoomState, valid_imposter_counts
+from rooms import (
+    DIFFICULTY_OPTIONS,
+    TIMER_OPTIONS,
+    Room,
+    RoomState,
+    player_summary,
+    valid_imposter_counts,
+)
 
 MIN_PLAYERS = 3
 NO_HINT_PLACEHOLDER = "(no hint given)"
@@ -127,7 +135,11 @@ async def _begin_game(room: Room, character_result: dict) -> None:
     num_imposters = min(room.num_imposters, len(connected_ids) - 1)  # defensive floor, shouldn't trigger given validation
     imposter_ids = set(random.sample(connected_ids, k=num_imposters))
     room.imposter_ids = imposter_ids
-    room.imposter_names = {pid: room.players[pid].name for pid in imposter_ids}
+    room.imposter_profiles = {pid: player_summary(room.players[pid]) for pid in imposter_ids}
+    # A stalling imposter surviving on repeated ties forever would make
+    # crew's real attempts worthless -- capping rounds means crew running
+    # out of time is itself a loss condition, same as losing the majority.
+    room.max_rounds = math.ceil(len(connected_ids) / 2)
 
     for pid in connected_ids:
         is_imposter = pid in imposter_ids
@@ -145,7 +157,9 @@ async def _begin_game(room: Room, character_result: dict) -> None:
             # Imposters know each other -- otherwise multiple imposters can't
             # coordinate their bluffing at all, which defeats the point of
             # having more than one.
-            payload["teammates"] = [room.imposter_names[other] for other in imposter_ids if other != pid]
+            payload["teammates"] = [
+                room.imposter_profiles[other]["name"] for other in imposter_ids if other != pid
+            ]
             if room.give_imposter_hint:
                 payload["hint"] = {
                     "genres": character_result["genres"],
@@ -176,7 +190,10 @@ async def _begin_next_round(room: Room) -> None:
         {
             "type": "round_started",
             "round_number": room.round_number,
-            "remaining_players": [{"id": pid, "name": room.players[pid].name} for pid in remaining],
+            "max_rounds": room.max_rounds,
+            # player_summary() rather than a hand-built dict so the avatar
+            # fields can never drift out of sync with the lobby payloads.
+            "remaining_players": [player_summary(room.players[pid]) for pid in remaining],
             "remaining_count": len(remaining),
         }
     )
@@ -301,6 +318,7 @@ async def _resolve_voting(room: Room) -> None:
 
     game_over = False
     winner = None
+    timed_out = False
     if ejected_id is not None:
         room.eliminated_ids.add(ejected_id)
         payload["ejected_id"] = ejected_id
@@ -308,13 +326,14 @@ async def _resolve_voting(room: Room) -> None:
         payload["was_imposter"] = ejected_id in room.imposter_ids
         game_over, winner = _check_win_condition(room)
 
+    # A round completing (elimination OR tie) without a resolution is itself
+    # a terminal condition once the round cap is hit -- crew stalling out of
+    # rounds is a loss, exactly like losing the majority.
+    if not game_over and room.round_number >= room.max_rounds:
+        game_over, winner, timed_out = True, "imposters", True
+
     if game_over:
-        payload["game_over"] = True
-        payload["winner"] = winner
-        payload["all_imposters"] = list(room.imposter_names.values())
-        payload["character"] = room.character_name
-        payload["anime_title"] = room.anime_title
-        await room.broadcast(payload)
+        await room.broadcast(_finalize_game_over(room, payload, winner, timed_out))
         return
 
     await room.broadcast(payload)
@@ -328,21 +347,23 @@ async def _resolve_voting(room: Room) -> None:
         return  # room is emptying out; main.py's own cleanup handles this
     late_game_over, late_winner = _check_win_condition(room)
     if late_game_over:
-        await room.broadcast(
-            {
-                "type": "round_reveal",
-                "reason": "disconnect",
-                "tie": False,
-                "game_over": True,
-                "winner": late_winner,
-                "all_imposters": list(room.imposter_names.values()),
-                "character": room.character_name,
-                "anime_title": room.anime_title,
-            }
-        )
+        late_payload = {"type": "round_reveal", "reason": "disconnect", "tie": False, "game_over": False}
+        await room.broadcast(_finalize_game_over(room, late_payload, late_winner, timed_out=False))
         return
 
     await _begin_next_round(room)
+
+
+def _finalize_game_over(room: Room, payload: dict, winner: str, timed_out: bool) -> dict:
+    payload["game_over"] = True
+    payload["winner"] = winner
+    payload["timed_out"] = timed_out
+    # Full summaries so the end screen can render imposters as avatar cards
+    # like everywhere else, rather than a plain list of names.
+    payload["all_imposters"] = list(room.imposter_profiles.values())
+    payload["character"] = room.character_name
+    payload["anime_title"] = room.anime_title
+    return payload
 
 
 def _determine_ejection(tally: dict[str, int]) -> "str | None":
@@ -416,18 +437,8 @@ async def _maybe_end_game_from_disconnect(room: Room) -> bool:
 
     room.cancel_timers()
     room.state = RoomState.REVEAL
-    await room.broadcast(
-        {
-            "type": "round_reveal",
-            "reason": "disconnect",
-            "tie": False,
-            "game_over": True,
-            "winner": winner,
-            "all_imposters": list(room.imposter_names.values()),
-            "character": room.character_name,
-            "anime_title": room.anime_title,
-        }
-    )
+    payload = {"type": "round_reveal", "reason": "disconnect", "tie": False, "game_over": False}
+    await room.broadcast(_finalize_game_over(room, payload, winner, timed_out=False))
     return True
 
 

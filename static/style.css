@@ -1,72 +1,788 @@
+/* ------------------------------------------------------------------
+   Anime Imposter — "cozy game night" theme.
+
+   Deliberately warm and papery rather than the flat cool-gray dark mode
+   every unstyled web app defaults to: cream/parchment background, warm
+   brown ink instead of pure black, coral + gold accents, chunky rounded
+   shapes with a soft "pressable" depth on buttons.
+   ------------------------------------------------------------------ */
+
 :root {
-  color-scheme: light dark;
-  font-family: system-ui, sans-serif;
+  --cream: #fdf4e8;
+  --parchment: #f7e8d4;
+  --card: #fffdf9;
+  --ink: #4a3728;
+  --ink-soft: #a08a76;
+  --coral: #ef7d57;
+  --coral-deep: #d55d3d;
+  --gold: #f4b942;
+  --sage: #7fa653;
+  --berry: #c1442e;
+  --border: #e8d5bc;
+  --border-strong: #d9bf9f;
+
+  --radius: 16px;
+  --radius-sm: 10px;
+  --shadow-soft: 0 2px 10px rgba(122, 82, 48, 0.08);
+  --shadow-lift: 0 6px 18px rgba(122, 82, 48, 0.14);
+
+  --font-display: "Fredoka", "Trebuchet MS", system-ui, sans-serif;
+  --font-body: "Nunito", system-ui, -apple-system, sans-serif;
+
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
-  max-width: 480px;
-  margin: 2rem auto;
-  padding: 0 1rem;
+  /* Sized to feel like a game screen rather than a form floating in a sea of
+     background: wide on desktop, full-bleed on phones. */
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+  font-family: var(--font-body);
+  font-size: 1.05rem;
+  color: var(--ink);
+  line-height: 1.5;
+  /* Subtle warm texture so large empty areas don't read as flat gray. */
+  background-color: var(--cream);
+  background-image:
+    radial-gradient(circle at 12% 8%, rgba(244, 185, 66, 0.16), transparent 42%),
+    radial-gradient(circle at 88% 4%, rgba(239, 125, 87, 0.14), transparent 38%);
+  background-attachment: fixed;
+  min-height: 100vh;
 }
+
+h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  /* clamp() so the title scales with the viewport instead of needing a
+     breakpoint of its own. Same approach for the other headline text. */
+  font-size: clamp(2.1rem, 5vw, 3rem);
+  text-align: center;
+  margin: 0 0 1.75rem;
+  color: var(--coral-deep);
+  letter-spacing: 0.01em;
+}
+
+h1::after {
+  content: "🍜";
+  display: block;
+  font-size: 1.25rem;
+  margin-top: 0.2rem;
+}
+
+h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  margin: 0;
+  color: var(--ink);
+}
+
+h2 { font-size: clamp(1.35rem, 2.6vw, 1.7rem); }
+h3 { font-size: clamp(1.1rem, 2vw, 1.3rem); }
 
 /* Scoped to :not([hidden]) deliberately: a bare `.screen { display: flex }`
    rule has the same specificity as the browser's built-in
    `[hidden] { display: none }` rule, and author CSS wins ties over the
    user-agent stylesheet — so an unscoped rule here silently cancels the
-   hidden attribute and every screen renders at once regardless of JS state. */
+   hidden attribute and every screen renders at once regardless of JS state.
+   Every `display:` rule in this file is scoped for that reason. */
 .screen:not([hidden]) {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.35rem;
+  /* Re-runs on every screen change (showScreen toggles [hidden]), so moving
+     between screens feels like a transition rather than a hard cut. */
+  animation: screen-in 0.28s cubic-bezier(0.22, 0.9, 0.3, 1);
 }
 
-.card {
-  border: 1px solid #8884;
-  border-radius: 8px;
-  padding: 1rem;
+@keyframes screen-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screen:not([hidden]) { animation: none; }
+}
+
+.card:not([hidden]) {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  box-shadow: var(--shadow-soft);
+}
+
+/* ---------------------------- controls ---------------------------- */
+
+input, select {
+  font-family: var(--font-body);
+  font-size: 1rem;
+  padding: 0.6rem 0.75rem;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--ink);
+}
+
+input::placeholder { color: var(--ink-soft); }
+
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--coral);
+  box-shadow: 0 0 0 3px rgba(239, 125, 87, 0.18);
+}
+
+button {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1rem;
+  padding: 0.6rem 1.1rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--coral);
+  color: #fff;
+  cursor: pointer;
+  /* The extra bottom edge is what gives buttons their tactile, pressable
+     feel — it collapses on :active so the button physically "sinks". */
+  box-shadow: 0 3px 0 var(--coral-deep);
+  transition: transform 0.06s ease, box-shadow 0.06s ease, filter 0.15s ease;
+}
+
+button:hover:not(:disabled) { filter: brightness(1.06); }
+
+button:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: 0 0 0 var(--coral-deep);
+}
+
+button:disabled {
+  background: #dcccbb;
+  box-shadow: 0 3px 0 #c7b5a1;
+  cursor: default;
+  opacity: 0.85;
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--coral-deep);
+  border: 1.5px solid var(--border-strong);
+  box-shadow: none;
+}
+
+button.ghost:active:not(:disabled) { transform: translateY(1px); }
+
+form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+form input { flex: 1; min-width: 0; }
+
+#name-form {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* ---------------------------- room code ---------------------------- */
+
+.room-code-row:not([hidden]) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+}
+
+#lobby-room-code {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--coral-deep);
+  background: var(--parchment);
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.3rem 0.85rem 0.3rem 1.03rem; /* extra left pad offsets letter-spacing's trailing gap */
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.08s ease, background 0.2s ease;
+}
+
+#lobby-room-code:hover { background: #f0dcc1; }
+#lobby-room-code:active { transform: scale(0.97); }
+#lobby-room-code.copied { background: #dcecd0; border-color: var(--sage); color: var(--sage); }
+
+.copy-hint {
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  text-align: center;
+  margin: 0;
+}
+
+/* ---------------------------- player cards ---------------------------- */
+
+.player-grid:not([hidden]) {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 0.8rem;
+}
+
+.player-card {
+  position: relative;
+  background: var(--card);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+/* Whoever's turn it is gets lifted and outlined so the active player is
+   obvious at a glance without reading any text. */
+.player-card.is-active {
+  border-color: var(--coral);
+  box-shadow: 0 0 0 3px rgba(239, 125, 87, 0.16), var(--shadow-lift);
+  transform: translateY(-2px);
+}
+
+.player-card.is-you { background: #fff6e9; }
+
+.player-card.is-eliminated {
+  opacity: 0.55;
+  filter: grayscale(0.7);
+}
+
+.player-avatar {
+  width: 60px;
+  height: 60px;
+  flex: 0 0 60px;
+  border-radius: 14px;
+  object-fit: cover;
+  background: var(--parchment);
+  border: 2px solid var(--border-strong);
+}
+
+.player-avatar-emoji {
+  width: 60px;
+  height: 60px;
+  flex: 0 0 60px;
+  border-radius: 14px;
+  background: var(--parchment);
+  border: 2px solid var(--border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+}
+
+.player-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.player-name {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player-tag {
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+
+/* Wraps rather than ellipsising: the status holds the player's actual hint,
+   which is the whole point of the card — truncating it to "clue-Ali…" would
+   hide the information people are voting on. */
+.player-status {
+  font-size: 0.98rem;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.player-status.has-hint {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.player-status.is-choosing { color: var(--coral-deep); font-weight: 700; }
+
+/* ---------------------------- reactions ---------------------------- */
+
+/* Speech bubble, not a plus: this is "say something", not "add something".
+   Always visible (never hover-gated) -- a hidden-until-hover control gets
+   missed entirely, and it doesn't exist at all on touch. */
+.react-btn {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  font-size: 1.25rem;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 3px 0 #d99f2e;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.react-btn:hover:not(:disabled) { transform: scale(1.08); filter: none; }
+
+.react-btn:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: 0 0 0 #d99f2e;
+}
+
+/* Gentle nudge on arrival so players notice the control exists at all. */
+.react-btn.is-open { transform: scale(1.08); }
+
+/* Raises the card (and therefore its popover) above later grid siblings. */
+.player-card.is-picking { z-index: 20; }
+
+.reaction-picker:not([hidden]) {
+  position: absolute;
+  /* Opens below the card rather than on top of it, so you can still see your
+     own avatar/name/hint while choosing what to say. */
+  top: calc(100% + 10px);
+  right: -6px;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 250px;
+  max-width: 78vw;
+  padding: 0.7rem;
+  background: var(--card);
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lift);
+  text-align: left;
+}
+
+.reaction-view:not([hidden]) {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
 
-input, button {
-  font-size: 1rem;
-  padding: 0.5rem;
+.reaction-emoji-row {
+  display: flex;
+  gap: 0.2rem;
+  justify-content: space-between;
 }
 
-.code-display {
+.reaction-emoji {
+  background: transparent;
+  box-shadow: none;
+  padding: 0.2rem 0.3rem;
+  font-size: 1.25rem;
+  line-height: 1;
+  border-radius: 10px;
+}
+
+.reaction-emoji:hover:not(:disabled) { background: var(--parchment); filter: none; }
+.reaction-emoji:active:not(:disabled) { transform: scale(0.9); box-shadow: none; }
+
+.reaction-phrases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.reaction-chip {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  background: var(--parchment);
+  color: var(--ink);
+  box-shadow: none;
+  border: 1.5px solid transparent;
+  text-align: left;
+}
+
+.reaction-chip:hover:not(:disabled) { background: #f0dcc1; filter: none; }
+.reaction-chip:active:not(:disabled) { transform: scale(0.96); box-shadow: none; }
+
+.reaction-accuse-open,
+.reaction-back {
+  background: transparent;
+  border-color: var(--border-strong);
+  color: var(--coral-deep);
+}
+
+.reaction-accuse-list:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.reaction-free {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.reaction-free input {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.9rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.reaction-free button {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.95rem;
+  box-shadow: 0 2px 0 var(--coral-deep);
+}
+
+/* Bubble pops on the sender's own card -- it points at whoever is speaking.
+   Sized to be readable across the room on a shared screen, not a subtle
+   badge: this is the thing people are meant to notice. */
+.reaction-bubble {
+  position: absolute;
+  /* Anchored by its BOTTOM edge so the bubble always floats clear above the
+     card no matter how tall it grows -- anchoring by `top` meant a wrapped
+     two-line bubble sat on top of the player's own name. */
+  bottom: calc(100% + 6px);
+  left: 50%;
+  z-index: 15;
+  padding: 0.3rem 0.7rem;
+  background: var(--card);
+  border: 2.5px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 2.2rem;
+  line-height: 1;
+  box-shadow: var(--shadow-lift);
+  pointer-events: none;
+  white-space: nowrap;
+  animation: reaction-pop 2s ease forwards;
+}
+
+.reaction-bubble.is-text {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  padding: 0.5rem 0.9rem;
+  border-radius: 18px;
+  /* Free text can be up to 40 chars, so let it wrap instead of running off
+     the side. `width: max-content` is needed because an absolutely
+     positioned box otherwise shrink-wraps to the space right of `left: 50%`,
+     which is far too narrow. overflow-wrap breaks a pasted unbroken string
+     (e.g. 40 x's) that has no space to wrap at and would otherwise render
+     one enormous line. Note the rendered width can exceed max-width by the
+     padding+border, since `max-content` resolves against the content box --
+     harmless for a floating bubble, and the vw term keeps phones safe. */
+  white-space: normal;
+  width: max-content;
+  max-width: min(260px, 72vw);
+  overflow-wrap: anywhere;
+  text-align: center;
+  line-height: 1.3;
+  animation-duration: 3.4s;
+}
+
+@keyframes reaction-pop {
+  0%   { opacity: 0; transform: translate(-50%, 6px) scale(0.5); }
+  15%  { opacity: 1; transform: translate(-50%, -4px) scale(1.15); }
+  30%  { transform: translate(-50%, 0) scale(1); }
+  75%  { opacity: 1; transform: translate(-50%, -2px) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -14px) scale(0.95); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reaction-bubble { animation: reaction-fade 2s ease forwards; }
+  .reaction-bubble.is-text { animation: reaction-fade 3.4s ease forwards; }
+}
+
+@keyframes reaction-fade {
+  0%   { opacity: 0; transform: translate(-50%, 0); }
+  10%  { opacity: 1; transform: translate(-50%, 0); }
+  85%  { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, 0); }
+}
+
+/* ---------------------------- avatar picker ---------------------------- */
+
+#avatar-picker:not([hidden]) {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.4rem;
+}
+
+.avatar-choice {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  border: 2.5px solid transparent;
+  border-radius: 12px;
+  overflow: hidden;
+  line-height: 0;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+
+.avatar-choice img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+}
+
+.avatar-choice .fallback-emoji {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
   font-size: 1.5rem;
-  font-weight: bold;
-  letter-spacing: 0.1em;
+  background: var(--parchment);
+}
+
+.avatar-choice:hover:not(:disabled) { transform: translateY(-2px); filter: none; }
+.avatar-choice:active:not(:disabled) { transform: scale(0.95); box-shadow: none; }
+
+.avatar-choice.avatar-selected {
+  border-color: var(--coral);
+  box-shadow: 0 0 0 3px rgba(239, 125, 87, 0.2);
+}
+
+.avatar-caption {
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  text-align: center;
+  margin: 0;
+}
+
+/* ---------------------------- misc ---------------------------- */
+
+.status-bar {
+  font-family: var(--font-display);
+  font-size: clamp(1.05rem, 2vw, 1.25rem);
+  font-weight: 500;
+  text-align: center;
+  margin: 0;
+  padding: 0.7rem 1rem;
+  background: var(--parchment);
+  border-radius: 999px;
+  color: var(--ink);
+}
+
+.role-banner {
+  margin: 0;
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius-sm);
+  background: #fff6e9;
+  border: 2px dashed var(--border-strong);
+  font-size: 1.05rem;
+}
+
+/* Timer urgency: purely visual (no audio) cue that the clock is nearly up,
+   so a distracted player notices without anyone having to say "hurry up". */
+.timer-display {
+  font-size: 1rem;
+  margin: 0;
+  color: var(--ink-soft);
+  transition: color 0.2s ease;
+}
+
+.timer-display.is-urgent {
+  color: var(--berry);
+  font-weight: 700;
+  animation: timer-pulse 1s ease-in-out infinite;
+}
+
+@keyframes timer-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.06); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timer-display.is-urgent { animation: none; }
+}
+
+.muted {
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  margin: 0;
 }
 
 .error {
-  color: #d33;
+  color: var(--berry);
+  font-size: 0.9rem;
   min-height: 1.2em;
+  margin: 0;
+}
+
+/* ---------------------------- end screen ---------------------------- */
+
+/* The outcome is the one thing people look for the instant the game ends,
+   so it gets its own full-width block instead of being a sentence inside a
+   paragraph of other results. */
+.outcome-banner:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1.75rem 1.25rem;
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 2px solid var(--border);
+  box-shadow: var(--shadow-lift);
+  text-align: center;
+}
+
+.outcome-banner.crew-win { background: linear-gradient(180deg, #eef7e4, #fffdf9); border-color: var(--sage); }
+.outcome-banner.imposter-win { background: linear-gradient(180deg, #fde8e2, #fffdf9); border-color: var(--coral); }
+.outcome-banner.neutral { background: linear-gradient(180deg, var(--parchment), #fffdf9); }
+
+.outcome-emoji {
+  font-size: clamp(2.5rem, 7vw, 3.5rem);
+  line-height: 1;
+  animation: outcome-pop 0.5s cubic-bezier(0.2, 1.3, 0.4, 1);
+}
+
+@keyframes outcome-pop {
+  0%   { transform: scale(0.3) rotate(-12deg); opacity: 0; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .outcome-emoji { animation: none; }
+}
+
+.outcome-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(1.7rem, 4.5vw, 2.4rem);
+  margin: 0;
+  line-height: 1.15;
+}
+
+.outcome-banner.crew-win .outcome-title { color: var(--sage); }
+.outcome-banner.imposter-win .outcome-title { color: var(--coral-deep); }
+
+.outcome-sub {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--ink-soft);
+}
+
+.character-name {
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 3.2vw, 1.9rem);
+  font-weight: 600;
+  color: var(--coral-deep);
+  margin: 0;
+}
+
+.center { text-align: center; }
+
+/* ---------------------------- round history ---------------------------- */
+
+#round-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.history-round {
+  border-left: 3px solid var(--parchment);
+  padding-left: 0.85rem;
+}
+
+.history-round-label {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+  margin: 0 0 0.3rem;
+}
+
+.history-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+  font-size: 0.98rem;
+}
+
+.history-avatar {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border-radius: 7px;
+  object-fit: cover;
+  border: 1.5px solid var(--border);
+}
+
+.history-hint-name { font-weight: 700; }
+
+.history-outcome {
+  margin: 0.35rem 0 0;
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+  font-style: italic;
 }
 
 main ul {
   list-style: none;
   padding: 0;
+  margin: 0;
 }
 
 main li {
-  padding: 0.5rem;
-  border-bottom: 1px solid #8882;
+  padding: 0.45rem 0;
+  border-bottom: 1.5px solid var(--parchment);
 }
 
-/* Same bug class as .screen above, worse here: an ID selector outranks
-   [hidden] outright (no tie needed), so this rule categorically overrode
-   `hidden` on this div, leaving the interactive settings controls visible
-   and clickable for non-host players regardless of JS state. */
+main li:last-child { border-bottom: none; }
+
+#vote-list:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+#vote-list li { border-bottom: none; padding: 0; }
+#vote-list button { width: 100%; text-align: left; }
+
 #settings-host-controls:not([hidden]) {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.55rem;
 }
 
-#details-image {
+#settings-host-controls label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.92rem;
+}
+
+#settings-host-controls .checkbox-label { justify-content: flex-start; }
+#settings-host-controls input[type="checkbox"] { width: 1.1rem; height: 1.1rem; accent-color: var(--coral); }
+
+#details-image:not([hidden]) {
   max-width: 100%;
   max-height: 300px;
   display: block;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border);
 }

@@ -8,9 +8,23 @@ from typing import Optional
 
 from fastapi import WebSocket
 
+from avatar_options import AVATAR_OPTIONS
+
 TIMER_OPTIONS = (15, 30, 60, None)
 DIFFICULTY_OPTIONS = ("easy", "hard")
 MAX_IMPOSTERS = 3
+
+# Avatars are referenced by a short id ("goku"), never by URL -- the client
+# never gets to tell the server what image to show, it only picks from this
+# roster. AVATAR_LOOKUP is what validation checks against.
+AVATAR_LOOKUP = {entry["id"]: entry for entry in AVATAR_OPTIONS}
+AVATAR_IDS = tuple(AVATAR_LOOKUP)
+
+
+def random_avatar_id() -> str:
+    """Players who never open the picker still get a character rather than a
+    blank slot -- assigned per player, not a shared default."""
+    return random.choice(AVATAR_IDS)
 
 ROOM_CODE_LENGTH = 4
 ROOM_CODE_ALPHABET = string.ascii_uppercase + string.digits
@@ -20,6 +34,21 @@ def valid_imposter_counts(player_count: int) -> list[int]:
     # Crew must always start a round with a strict majority, or a single
     # elimination round could hand imposters the win by dead heat alone.
     return [n for n in range(1, MAX_IMPOSTERS + 1) if n < player_count / 2]
+
+
+def player_summary(player: "Player") -> dict:
+    """The canonical shape every payload uses to describe a player. Resolving
+    the avatar server-side (rather than shipping just the id and making each
+    client look it up) keeps the roster in exactly one place."""
+    avatar = AVATAR_LOOKUP[player.avatar_id]
+    return {
+        "id": player.id,
+        "name": player.name,
+        "avatar_id": player.avatar_id,
+        "avatar_name": avatar["name"],
+        "avatar_emoji": avatar["emoji"],
+        "avatar_image": avatar["image"],
+    }
 
 
 class RoomState(str, Enum):
@@ -36,6 +65,14 @@ class Player:
     name: str
     websocket: WebSocket
     session_id: str
+    avatar_id: str = field(default_factory=random_avatar_id)
+
+    # Reaction rate-limit state. Lives on Player (not a module-level dict)
+    # so it's cleaned up automatically when the player disconnects and the
+    # Player object is dropped -- no separate bookkeeping to leak.
+    last_reaction_at: float = 0.0
+    blocked_reaction_attempts: int = 0
+    reaction_locked_until: float = 0.0
 
 
 @dataclass
@@ -55,13 +92,17 @@ class Room:
     anime_title: Optional[str] = None
     # Fixed once per GAME at start_game/new_round, not per round -- an
     # elimination-style game keeps the same imposters across every round
-    # until someone wins. Names are captured alongside the ids (not looked
-    # up later) so the final reveal still shows them correctly even if an
-    # imposter disconnects before the game ends.
+    # until someone wins. Full player summaries (name + avatar) are snapshotted
+    # at assignment rather than looked up later, so the final reveal can still
+    # render an imposter's card even if they disconnected mid-game.
     imposter_ids: set[str] = field(default_factory=set)
-    imposter_names: dict[str, str] = field(default_factory=dict)
+    imposter_profiles: dict[str, dict] = field(default_factory=dict)
     eliminated_ids: set[str] = field(default_factory=set)
     round_number: int = 0
+    # Fixed once per game, from the player count at start_game/new_round --
+    # crew running out of rounds (repeated ties) is a loss condition, so
+    # this can't be left uncapped or a stalling imposter could never lose.
+    max_rounds: int = 1
 
     # keyed by player_id -> {"name": str, "hint": str}; the name is captured
     # at submit time so a hint given just before someone disconnects still
@@ -75,7 +116,7 @@ class Room:
     voting_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
 
     def player_summaries(self) -> list[dict]:
-        return [{"id": p.id, "name": p.name} for p in self.players.values()]
+        return [player_summary(p) for p in self.players.values()]
 
     def remaining_ids(self) -> list[str]:
         """Currently-connected players who haven't been ejected this game.
@@ -130,7 +171,7 @@ class Room:
         self.character_name = None
         self.anime_title = None
         self.imposter_ids = set()
-        self.imposter_names = {}
+        self.imposter_profiles = {}
         self.eliminated_ids = set()
         self.round_number = 0
 
