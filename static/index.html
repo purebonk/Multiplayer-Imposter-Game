@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Anime Imposter</title>
+  <!-- Original geometric mark, not character artwork: this is a public
+       deployment and anime stills are not ours to ship as branding. -->
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
   <!-- Webfonts degrade gracefully: if fonts.googleapis.com is unreachable the
        stacks in style.css fall back to system fonts and everything still works. -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -153,6 +156,8 @@
       <div id="voting-panel" class="card">
         <h3>Cast your vote</h3>
         <ul id="vote-list"></ul>
+        <button id="skip-vote-btn" class="ghost skip-vote-btn">🤷 Skip vote</button>
+        <p id="skip-vote-note" class="muted">If skipping ties or beats the top vote, nobody is ejected.</p>
         <p id="vote-progress" class="muted"></p>
         <p id="spectator-note" class="muted" hidden>You've been ejected — you can watch, but you can't vote.</p>
       </div>
@@ -168,9 +173,22 @@
 
       <div class="card">
         <p id="guess-timer" class="timer-display"></p>
+        <!-- A searchable picker, not free text: the answer is chosen from the
+             real pool by id, so a correct guess can never be lost to a typo. -->
         <form id="guess-form">
-          <input id="guess-input" placeholder="Name the character…" maxlength="60" />
-          <button id="guess-submit-btn" type="submit">Guess</button>
+          <div class="combobox">
+            <input
+              id="guess-input"
+              placeholder="Search the character list…"
+              autocomplete="off"
+              role="combobox"
+              aria-expanded="false"
+              aria-controls="guess-options"
+            />
+            <ul id="guess-options" class="combobox-list" role="listbox" hidden></ul>
+          </div>
+          <p id="guess-selection" class="guess-selection" hidden></p>
+          <button id="guess-submit-btn" type="submit" disabled>Lock in guess</button>
         </form>
         <p id="guess-waiting" class="muted" hidden></p>
       </div>
@@ -213,8 +231,16 @@
 
       <button id="new-round-btn" hidden>Play Again</button>
       <p id="new-round-loading" class="muted center" hidden>Starting round…</p>
+      <!-- The way back to the lobby to change settings or let new friends in,
+           without anyone having to leave and rebuild the room. -->
+      <button id="back-to-lobby-btn" class="ghost" hidden>⚙️ Back to lobby (change settings)</button>
+      <p id="back-to-lobby-note" class="muted center" hidden>Waiting for the host…</p>
     </section>
   </main>
+
+  <!-- Hint reveal stage. Lives outside <main> and is pointer-events:none so a
+       reveal never blocks the next player from typing. -->
+  <div id="hint-stage" aria-hidden="true"></div>
 
   <script src="/static/app.js"></script>
 </body>

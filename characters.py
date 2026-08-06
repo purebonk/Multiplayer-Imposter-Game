@@ -1,3 +1,4 @@
+import functools
 import random
 
 from character_pool_data import ANIME_POOL
@@ -29,6 +30,48 @@ def _pick_decoy(anime: dict, chosen: dict, difficulty: str) -> "str | None":
 
     anyone_else = [c for c in anime["characters"] if c["name"] != chosen["name"]]
     return random.choice(anyone_else)["name"] if anyone_else else None
+
+
+@functools.lru_cache(maxsize=4)
+def pool_entries(difficulty: str) -> tuple:
+    """Every character a game at this difficulty could possibly have chosen,
+    as ((id, name), ...) sorted by name.
+
+    This is what the ejected imposter picks from for their last-chance guess,
+    instead of typing a name from memory. Deliberately the WHOLE tier, never
+    just the current anime's cast -- narrowing it to one show would hand them
+    the answer. Seeing ~80-200 names tells them nothing they didn't already
+    know, since the difficulty setting is shown in the lobby anyway.
+
+    Cached because it's rebuilt on every guess phase and the underlying pool
+    is a static import that never changes at runtime.
+
+    Built through _filter_by_difficulty rather than by re-filtering on role,
+    so it lands on exactly the set get_character() can actually return. That
+    matters: _filter_by_difficulty falls back to an anime's whole cast when it
+    has nobody in the requested tier (KonoSuba has no "Main" entries at all),
+    so a role-based filter here would omit characters an easy game can genuinely
+    choose -- and the guesser would have no way to pick the right answer.
+    """
+    names = {
+        c["name"]
+        for anime in ANIME_POOL
+        for c in _filter_by_difficulty(anime["characters"], difficulty)
+    }
+    # Index-as-id is stable for the process because the sort is total and the
+    # source data is immutable; the server re-derives the name from the id at
+    # submit time, so a client never gets to define what a given id means.
+    return tuple((index, name) for index, name in enumerate(sorted(names)))
+
+
+def resolve_pool_entry(difficulty: str, entry_id) -> "str | None":
+    """Turn a client-supplied pool id back into a character name, or None."""
+    if not isinstance(entry_id, int) or isinstance(entry_id, bool):
+        return None
+    entries = pool_entries(difficulty)
+    if 0 <= entry_id < len(entries):
+        return entries[entry_id][1]
+    return None
 
 
 async def get_character(difficulty: str = "easy") -> dict:

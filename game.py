@@ -1,13 +1,15 @@
 import asyncio
+import logging
 import math
 import random
 
 import config
-from characters import get_character
+from characters import get_character, pool_entries, resolve_pool_entry
 from limits import clean_text
 from rooms import (
     DIFFICULTY_OPTIONS,
     IMPOSTER_MODE_OPTIONS,
+    SKIP_VOTE,
     TIMER_OPTIONS,
     Room,
     RoomState,
@@ -15,10 +17,54 @@ from rooms import (
     valid_imposter_counts,
 )
 
+logger = logging.getLogger("imposter")
+
 MIN_PLAYERS = 3
 NO_HINT_PLACEHOLDER = "(no hint given)"
 ROUND_TRANSITION_DELAY = 4  # seconds to let players read the elimination reveal before the next round starts
+# Extra slack before the watchdog decides the transition above is never coming.
+ROUND_ADVANCE_GRACE = 3
 GUESS_SECONDS = 20  # how long a just-ejected imposter gets to name the character
+
+
+def settings_editable(room: Room) -> bool:
+    """The room isn't actively mid-game: either nobody has started yet, or a
+    game has finished and everyone is looking at the results."""
+    return room.state == RoomState.LOBBY or (room.state == RoomState.REVEAL and room.game_over)
+
+
+async def return_to_lobby(room: Room, player_id: str) -> None:
+    """Take a finished game back to the lobby.
+
+    Needed because REVEAL had no exit except new_round, so once a game ended
+    the room could never reach LOBBY again -- the settings were frozen for as
+    long as the room existed, and the only way to change them was for everyone
+    to leave and make a new room. Reaching LOBBY also re-opens the room to new
+    players, since the join gate keys off exactly that state.
+    """
+    if player_id != room.host_id:
+        await room.send_to(player_id, {"type": "error", "message": "Only the host can do that."})
+        return
+    if not (room.state == RoomState.REVEAL and room.game_over):
+        await room.send_to(player_id, {"type": "error", "message": "Can't return to the lobby right now."})
+        return
+
+    room.reset_game_state()
+    room.state = RoomState.LOBBY
+    # A game may have ended with fewer players than it started with, which can
+    # leave the imposter count too high for the lobby it's returning to.
+    valid = valid_imposter_counts(max(len(room.players), MIN_PLAYERS))
+    if valid and room.num_imposters not in valid:
+        room.num_imposters = max(valid)
+
+    await room.broadcast(
+        {
+            "type": "returned_to_lobby",
+            "players": room.player_summaries(),
+            "host_id": room.host_id,
+            **{k: v for k, v in _settings_payload(room).items() if k != "type"},
+        }
+    )
 
 
 async def update_settings(
@@ -34,8 +80,11 @@ async def update_settings(
     if player_id != room.host_id:
         await room.send_to(player_id, {"type": "error", "message": "Only the host can change settings."})
         return
-    if room.state != RoomState.LOBBY:
-        await room.send_to(player_id, {"type": "error", "message": "Can't change settings after starting."})
+    # Editable in the lobby AND on a finished game's result screen. REVEAL is
+    # reused between elimination rounds, where changing the timer or imposter
+    # count mid-game would be unfair, so game_over is what distinguishes them.
+    if not settings_editable(room):
+        await room.send_to(player_id, {"type": "error", "message": "Can't change settings mid-game."})
         return
     if (
         timer_seconds not in TIMER_OPTIONS
@@ -121,7 +170,10 @@ async def new_round(room: Room, player_id: str) -> None:
     if player_id != room.host_id:
         await room.send_to(player_id, {"type": "error", "message": "Only the host can start a new round."})
         return
-    if room.state != RoomState.REVEAL:
+    # game_over as well as REVEAL: the room also sits in REVEAL during the
+    # pause between elimination rounds, and a host shouldn't be able to
+    # abandon a game in progress by starting a fresh one from there.
+    if room.state != RoomState.REVEAL or not room.game_over:
         await room.send_to(player_id, {"type": "error", "message": "Can't start a new round right now."})
         return
     if len(room.players) < MIN_PLAYERS:
@@ -216,6 +268,11 @@ async def _begin_game(room: Room, character_result: dict) -> None:
 
 
 async def _begin_next_round(room: Room) -> None:
+    # The transition finished, however it got here -- stand both guards down.
+    # cancel_task is current-task-safe, so the watchdog calling this doesn't
+    # cancel itself mid-way.
+    room.cancel_task("transition_task")
+    room.cancel_task("watchdog_task")
     room.hints.clear()
     room.votes.clear()
     room.round_number += 1
@@ -239,9 +296,9 @@ async def _begin_next_round(room: Room) -> None:
 
 
 async def _start_turn(room: Room) -> None:
-    if room.turn_task is not None:
-        room.turn_task.cancel()
-        room.turn_task = None
+    # cancel_task, not a bare .cancel(): _turn_timeout reaches here to start the
+    # NEXT turn, so a plain cancel would be the timer killing itself.
+    room.cancel_task("turn_task")
 
     current_id = room.current_turn_player_id()
     if current_id is None:
@@ -282,9 +339,7 @@ async def submit_hint(room: Room, player_id: str, hint: str) -> None:
         await room.send_to(player_id, {"type": "error", "message": "It's not your turn."})
         return
 
-    if room.turn_task is not None:
-        room.turn_task.cancel()
-        room.turn_task = None
+    room.cancel_task("turn_task")
 
     # Server-side cap and normalisation. The input's maxlength is a UI
     # nicety; a raw socket can send megabytes, and a hint is rebroadcast to
@@ -326,7 +381,12 @@ async def _voting_timeout(room: Room, seconds: int) -> None:
 
 async def submit_vote(room: Room, player_id: str, target_id: str) -> None:
     remaining = room.remaining_ids()
-    if room.state != RoomState.VOTING or player_id not in remaining or target_id not in remaining:
+    if room.state != RoomState.VOTING or player_id not in remaining:
+        return
+    # A skip is a real, validated vote -- not "no vote". It still occupies this
+    # player's slot, so the "everyone has voted" check below closes normally
+    # instead of waiting out the clock on people who already decided.
+    if target_id != SKIP_VOTE and target_id not in remaining:
         return
     if player_id == target_id:
         await room.send_to(player_id, {"type": "error", "message": "You can't vote for yourself."})
@@ -337,6 +397,7 @@ async def submit_vote(room: Room, player_id: str, target_id: str) -> None:
         {
             "type": "vote_progress",
             "tally": _tally_votes(room),
+            "skips": _skip_count(room),
             "voted_count": len(room.votes),
             "total": len(remaining),
         }
@@ -352,10 +413,33 @@ async def _resolve_voting(room: Room) -> None:
     room.state = RoomState.REVEAL  # flipped synchronously before any await, closing the same race window used elsewhere
 
     tally = _tally_votes(room)
-    ejected_id = _determine_ejection(tally)
-    tie = ejected_id is None and len(tally) > 0
+    skips = _skip_count(room)
+    ejected_id = _determine_ejection(tally, skips)
 
-    payload = {"type": "round_reveal", "reason": "vote", "tally": tally, "tie": tie, "game_over": False}
+    # "tie" is really "the round ended with nobody ejected" -- the client keys
+    # its no-ejection copy off it. no_ejection_reason says which kind, because
+    # "we deadlocked" and "we agreed to skip" deserve different wording. An
+    # all-skip round used to leave tally empty, making tie False with no
+    # ejected_name either, which rendered a reveal for a player who never was.
+    tie = ejected_id is None and len(room.votes) > 0
+    if ejected_id is not None:
+        no_ejection_reason = None
+    elif tally and skips >= max(tally.values()):
+        no_ejection_reason = "skip"
+    elif not tally:
+        no_ejection_reason = "skip"
+    else:
+        no_ejection_reason = "tie"
+
+    payload = {
+        "type": "round_reveal",
+        "reason": "vote",
+        "tally": tally,
+        "skips": skips,
+        "tie": tie,
+        "no_ejection_reason": no_ejection_reason,
+        "game_over": False,
+    }
 
     if ejected_id is not None:
         room.eliminated_ids.add(ejected_id)
@@ -386,6 +470,15 @@ async def _enter_guess_phase(room: Room, payload: dict, ejected_id: str) -> None
             "seconds": GUESS_SECONDS,
         }
     )
+    # The pickable roster goes only to the guesser -- nobody else has any use
+    # for it, and it's a large payload to hand every client every round.
+    await room.send_to(
+        ejected_id,
+        {
+            "type": "guess_options",
+            "options": [{"id": i, "name": n} for i, n in pool_entries(room.difficulty)],
+        },
+    )
     room.guess_task = asyncio.create_task(_guess_timeout(room, ejected_id))
 
 
@@ -398,10 +491,16 @@ async def _guess_timeout(room: Room, guesser_id: str) -> None:
     await _finish_guess(room, guess_text=None)
 
 
-async def submit_guess(room: Room, player_id: str, guess: str) -> None:
+async def submit_guess(room: Room, player_id: str, guess: str, guess_id=None) -> None:
     if room.state != RoomState.GUESSING or player_id != room.guesser_id:
         return
-    await _finish_guess(room, guess_text=clean_text(guess, config.MAX_GUESS_LENGTH))
+    # An id from the picker is resolved server-side against the same pool the
+    # options were built from, so the answer can't hinge on spelling. Free text
+    # is still accepted as a fallback for any client that isn't the bundled
+    # frontend, and still goes through the forgiving matcher.
+    resolved = resolve_pool_entry(room.difficulty, guess_id)
+    text = resolved if resolved is not None else clean_text(guess, config.MAX_GUESS_LENGTH)
+    await _finish_guess(room, guess_text=text)
 
 
 async def _finish_guess(room: Room, guess_text: "str | None") -> None:
@@ -471,7 +570,24 @@ async def _conclude_round(room: Room, payload: dict, ejected_id: "str | None") -
         return
 
     await room.broadcast(payload)
-    await asyncio.sleep(ROUND_TRANSITION_DELAY)
+
+    # Broadcast-then-return, the same pattern _enter_guess_phase uses. The
+    # pause used to be awaited inline, which meant the whole round transition
+    # ran inside whatever triggered it -- the last voter's receive loop, or the
+    # voting timer's own task. Anything that interrupted that caller (a
+    # cancelled timer, a dropped socket) took the next round down with it, and
+    # the room sat on the reveal screen forever. Owning the pause as a task of
+    # the room's own makes the transition independent of who caused it.
+    stalled_round = room.round_number
+    room.cancel_task("transition_task")
+    room.cancel_task("watchdog_task")
+    room.transition_task = asyncio.create_task(_advance_after_reveal(room, ROUND_TRANSITION_DELAY))
+    room.watchdog_task = asyncio.create_task(_round_advance_watchdog(room, stalled_round))
+
+
+async def _advance_after_reveal(room: Room, delay: float) -> None:
+    """The normal path out of a non-final reveal."""
+    await asyncio.sleep(delay)
 
     # Someone may have disconnected during the pause. handle_disconnect()
     # only win-checks during HINTS/VOTING (state is REVEAL right now), so
@@ -488,7 +604,42 @@ async def _conclude_round(room: Room, payload: dict, ejected_id: "str | None") -
     await _begin_next_round(room)
 
 
+async def _round_advance_watchdog(room: Room, stalled_round: int) -> None:
+    """Force the round forward if the normal transition never completed.
+
+    Defence in depth, not the primary mechanism: _advance_after_reveal is what
+    normally runs. This exists because a stuck reveal screen is the single
+    worst failure mode in the game -- it strands a live room with no way out
+    short of everyone leaving -- and it is worth guaranteeing that no future
+    edge case can reproduce that, whatever the cause.
+
+    Deliberately a separate task from the one it's watching: a watchdog that
+    could be killed by the same thing it guards against is not a watchdog.
+    """
+    await asyncio.sleep(ROUND_TRANSITION_DELAY + ROUND_ADVANCE_GRACE)
+    # Only act if the room is demonstrably still stuck on the same reveal.
+    # Any legitimate progression changes state or round_number, so this is a
+    # no-op in every normal game.
+    if room.state != RoomState.REVEAL or room.game_over:
+        return
+    if room.round_number != stalled_round or len(room.players) < 2:
+        return
+    logger.warning(
+        "round_transition_forced room=%s round=%d -- reveal never advanced",
+        room.code, stalled_round,
+    )
+    game_over, winner = _check_win_condition(room)
+    if game_over:
+        payload = {"type": "round_reveal", "reason": "disconnect", "tie": False, "game_over": False}
+        await room.broadcast(_finalize_game_over(room, payload, winner, timed_out=False))
+        return
+    await _begin_next_round(room)
+
+
 def _finalize_game_over(room: Room, payload: dict, winner: str, timed_out: bool) -> dict:
+    # Marks the room as "between games" rather than "mid-game", which is what
+    # lets the host edit settings or return everyone to the lobby from here.
+    room.game_over = True
     payload["game_over"] = True
     payload["winner"] = winner
     payload["timed_out"] = timed_out
@@ -500,10 +651,20 @@ def _finalize_game_over(room: Room, payload: dict, winner: str, timed_out: bool)
     return payload
 
 
-def _determine_ejection(tally: dict[str, int]) -> "str | None":
+def _determine_ejection(tally: dict[str, int], skips: int = 0) -> "str | None":
+    """Who gets ejected, if anyone.
+
+    Skips are treated as votes for "nobody" rather than as abstentions that
+    quietly vanish. If skipping ties or beats the leading player, no one is
+    ejected -- so choosing to skip is a real decision that can change the
+    outcome, which is the whole point of offering it. It also means a room that
+    genuinely can't agree isn't forced to eject someone at random.
+    """
     if not tally:
         return None
     max_votes = max(tally.values())
+    if skips >= max_votes:
+        return None
     top = [pid for pid, count in tally.items() if count == max_votes]
     return top[0] if len(top) == 1 else None
 
@@ -574,9 +735,7 @@ async def _handle_hint_phase_disconnect(room: Room, player_id: str) -> None:
     if was_current_turn:
         # The list just shifted left under turn_index, so it already points
         # at whoever's next (or past the end) — auto-skip by restarting.
-        if room.turn_task is not None:
-            room.turn_task.cancel()
-            room.turn_task = None
+        room.cancel_task("turn_task")
         await _start_turn(room)
     elif left_index < room.turn_index:
         room.turn_index -= 1
@@ -602,7 +761,15 @@ async def _maybe_end_game_from_disconnect(room: Room) -> bool:
 
 
 def _tally_votes(room: Room) -> dict[str, int]:
+    """Ejection tally only -- skips are counted separately by _skip_count so
+    the sentinel can never be mistaken for a player id downstream."""
     tally: dict[str, int] = {}
     for target_id in room.votes.values():
+        if target_id == SKIP_VOTE:
+            continue
         tally[target_id] = tally.get(target_id, 0) + 1
     return tally
+
+
+def _skip_count(room: Room) -> int:
+    return sum(1 for target_id in room.votes.values() if target_id == SKIP_VOTE)

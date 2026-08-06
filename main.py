@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 import character_details
+import characters
 import config
 import game
 import limits
@@ -411,6 +412,7 @@ async def _resume_session(websocket: WebSocket, room, room_code: str, player, ip
         "players": room.player_summaries(),
         "reconnect_token": player.reconnect_token,
         "room_state": room.state.value,
+        "game_over": room.game_over,
         "round_number": room.round_number,
         "max_rounds": room.max_rounds,
         "eliminated": player.id in room.eliminated_ids,
@@ -443,6 +445,13 @@ async def _resume_session(websocket: WebSocket, room, room_code: str, player, ip
         else:
             snapshot["character"] = room.character_name
             snapshot["anime_title"] = room.anime_title
+
+    # A guesser who refreshed mid-guess needs the picker rebuilt, or they'd be
+    # staring at an empty dropdown with the clock running.
+    if room.state == RoomState.GUESSING and room.guesser_id == player.id:
+        snapshot["guess_options"] = [
+            {"id": i, "name": n} for i, n in characters.pool_entries(room.difficulty)
+        ]
 
     await room.send_to(player.id, snapshot)
     await room.broadcast(
@@ -518,7 +527,11 @@ async def _run_session(websocket: WebSocket, room, room_code: str, player_id: st
                     message.get("last_chance_guess"),
                 )
             elif msg_type == "submit_guess":
-                await game.submit_guess(room, player_id, message.get("guess", ""))
+                await game.submit_guess(
+                    room, player_id, message.get("guess", ""), message.get("guess_id")
+                )
+            elif msg_type == "return_to_lobby":
+                await game.return_to_lobby(room, player_id)
             elif msg_type == "submit_hint":
                 await game.submit_hint(room, player_id, message.get("hint", ""))
             elif msg_type == "submit_vote":

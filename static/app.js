@@ -34,6 +34,9 @@ const guessForm = document.getElementById("guess-form");
 const guessInput = document.getElementById("guess-input");
 const guessSubmitBtn = document.getElementById("guess-submit-btn");
 const guessWaiting = document.getElementById("guess-waiting");
+const guessOptionsList = document.getElementById("guess-options");
+const guessSelection = document.getElementById("guess-selection");
+const hintStage = document.getElementById("hint-stage");
 const hostHint = document.getElementById("host-hint");
 const startGameBtn = document.getElementById("start-game-btn");
 const startingLoading = document.getElementById("starting-loading");
@@ -52,6 +55,8 @@ const votingPlayerCards = document.getElementById("voting-player-cards");
 const votingTimerDisplay = document.getElementById("voting-timer-display");
 const votingPanel = document.getElementById("voting-panel");
 const voteList = document.getElementById("vote-list");
+const skipVoteBtn = document.getElementById("skip-vote-btn");
+const skipVoteNote = document.getElementById("skip-vote-note");
 const voteProgress = document.getElementById("vote-progress");
 const spectatorNote = document.getElementById("spectator-note");
 
@@ -77,6 +82,8 @@ const detailsImage = document.getElementById("details-image");
 const detailsAbout = document.getElementById("details-about");
 const newRoundBtn = document.getElementById("new-round-btn");
 const newRoundLoading = document.getElementById("new-round-loading");
+const backToLobbyBtn = document.getElementById("back-to-lobby-btn");
+const backToLobbyNote = document.getElementById("back-to-lobby-note");
 
 const MIN_PLAYERS = 3;
 const MAX_IMPOSTERS = 3;
@@ -186,6 +193,9 @@ let roundLog = [];
 let turnCountdownInterval = null;
 let votingCountdownInterval = null;
 let reactionCooldownUntil = 0;
+let myVoteTarget = null;
+let guessOptions = [];
+let selectedGuess = null;
 // Suppresses the "connection lost" alert when the player chose to leave.
 let leavingDeliberately = false;
 // Resolved by the `reconnected` message so attemptReconnect() knows it worked.
@@ -193,6 +203,9 @@ let reconnectResolver = null;
 
 function showScreen(id) {
   for (const s of screens) s.hidden = s.id !== id;
+  // A hint reveal is anchored to a card on the screen it started on; leaving
+  // that screen would strand it floating over whatever comes next.
+  clearHintStage();
 }
 
 function isBeforeRoomJoin() {
@@ -367,6 +380,8 @@ const cardRegistries = new Map();
 function createCard(player, opts) {
   const el = document.createElement("div");
   el.className = "player-card";
+  // Lets the hint-reveal animation find the card it should fly into.
+  el.dataset.playerId = player.id;
 
   const avatar = avatarNode(player, "player-avatar");
   el.appendChild(avatar);
@@ -855,6 +870,13 @@ function handleMessage(data) {
     case "guess_started":
       enterGuessScreen(data);
       break;
+    case "guess_options":
+      // Only the guesser is sent this; everyone else never receives it.
+      guessOptions = data.options || [];
+      break;
+    case "returned_to_lobby":
+      handleReturnedToLobby(data);
+      break;
     case "round_reveal":
       handleRoundReveal(data);
       break;
@@ -957,6 +979,34 @@ function handleReconnected(data) {
   hintSubmitBtn.disabled = !myTurn;
   turnHeading.textContent = myTurn ? "Your turn!" : "Back in the game";
   showScreen("screen-hints");
+}
+
+function handleReturnedToLobby(data) {
+  // A finished game folded back into a fresh lobby: same room, same people,
+  // settings now editable again and open to new players joining.
+  players = data.players;
+  hostId = data.host_id;
+  timerSeconds = data.timer_seconds;
+  difficulty = data.difficulty;
+  giveImposterHint = data.give_imposter_hint;
+  numImposters = data.num_imposters;
+  imposterMode = data.imposter_mode;
+  lastChanceGuess = data.last_chance_guess;
+
+  myRole = null;
+  myCharacter = null;
+  myAnimeTitle = null;
+  myHint = null;
+  myTeammates = [];
+  myDecoyMode = false;
+  remainingPlayers = [];
+  hintsByPlayerId = {};
+  roundLog = [];
+  currentTurnPlayerId = null;
+  clearHintStage();
+
+  renderLobby();
+  showScreen("screen-lobby");
 }
 
 function renderLobby() {
@@ -1164,6 +1214,138 @@ function handleHintGiven(data) {
     });
   }
   renderPlayerCards(hintsPlayerCards, remainingPlayers, { mode: "hints", allowReactions: true });
+  stageHintReveal(data);
+}
+
+/* ---------------------------- hint reveal moment --------------------------
+   Reacting to hints is the whole game, and a hint quietly appearing as small
+   text inside a card was easy to miss entirely. Each hint now gets a beat:
+   large and centred, then it flies down into the card it belongs to, where it
+   stays as the permanent record. The card is already updated underneath before
+   the flight starts, so if the animation is skipped or interrupted nothing is
+   lost — this is presentation only.
+--------------------------------------------------------------------------- */
+
+const HINT_HOLD_MS = 1100;   // time centre-stage before flying home
+const HINT_FLIGHT_MS = 620;
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+let hintRevealQueue = [];
+let hintRevealPlaying = false;
+
+function clearHintStage() {
+  hintRevealQueue = [];
+  hintRevealPlaying = false;
+  hintStage.innerHTML = "";
+}
+
+function stageHintReveal(data) {
+  // A skipped turn isn't a moment worth interrupting anyone for.
+  if (data.hint === "(no hint given)") return;
+  hintRevealQueue.push(data);
+  // Fast timers can queue hints faster than they can play. Only the newest
+  // couple still matter; showing a backlog would run behind the live game.
+  if (hintRevealQueue.length > 2) hintRevealQueue = hintRevealQueue.slice(-2);
+  if (!hintRevealPlaying) playNextHintReveal();
+}
+
+function playNextHintReveal() {
+  const data = hintRevealQueue.shift();
+  if (!data) {
+    hintRevealPlaying = false;
+    return;
+  }
+  hintRevealPlaying = true;
+
+  const player = remainingPlayers.find((p) => p.id === data.player_id);
+  const el = buildHintRevealNode(data, player);
+  hintStage.appendChild(el);
+
+  const finish = () => {
+    el.remove();
+    playNextHintReveal();
+  };
+
+  if (reducedMotion.matches) {
+    // Same information, no movement: appear, hold, fade.
+    el.classList.add("is-static");
+    setTimeout(() => {
+      el.classList.add("is-leaving");
+      setTimeout(finish, 200);
+    }, HINT_HOLD_MS);
+    return;
+  }
+
+  el.classList.add("is-entering");
+  setTimeout(() => flyHintToCard(el, data.player_id, finish), HINT_HOLD_MS);
+}
+
+function buildHintRevealNode(data, player) {
+  const el = document.createElement("div");
+  el.className = "hint-reveal";
+
+  const who = document.createElement("div");
+  who.className = "hint-reveal-who";
+  if (player && player.avatar_image) {
+    const img = document.createElement("img");
+    img.className = "hint-reveal-avatar";
+    img.src = player.avatar_image;
+    img.alt = "";
+    who.appendChild(img);
+  } else {
+    const emoji = document.createElement("span");
+    emoji.className = "hint-reveal-emoji";
+    emoji.textContent = player ? player.avatar_emoji : "🎭";
+    who.appendChild(emoji);
+  }
+  const name = document.createElement("span");
+  name.className = "hint-reveal-name";
+  name.textContent = data.name;
+  who.appendChild(name);
+
+  const word = document.createElement("p");
+  word.className = "hint-reveal-word";
+  word.textContent = `“${data.hint}”`;
+
+  el.appendChild(who);
+  el.appendChild(word);
+  return el;
+}
+
+function flyHintToCard(el, playerId, done) {
+  // FLIP: measure where the card actually is right now, then transform the
+  // centred node onto it. Reading the live position means this still lands
+  // correctly after the grid reflows or the page is scrolled.
+  const card = hintsPlayerCards.querySelector(`[data-player-id="${playerId}"]`);
+  if (!card) {
+    el.classList.add("is-leaving");
+    setTimeout(done, 200);
+    return;
+  }
+
+  const from = el.getBoundingClientRect();
+  const to = card.getBoundingClientRect();
+  if (!from.width || !to.width) {
+    done();
+    return;
+  }
+
+  const scale = Math.min(1, (to.width * 0.9) / from.width);
+  const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+  const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+
+  el.classList.remove("is-entering");
+  el.classList.add("is-flying");
+  el.style.transition = `transform ${HINT_FLIGHT_MS}ms cubic-bezier(0.45, 0, 0.3, 1), opacity ${HINT_FLIGHT_MS}ms ease-in`;
+  // Next frame, so the transition has a start value to animate from.
+  requestAnimationFrame(() => {
+    el.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(${scale})`;
+    el.style.opacity = "0";
+  });
+
+  card.classList.add("is-hint-landing");
+  setTimeout(() => card.classList.remove("is-hint-landing"), HINT_FLIGHT_MS + 260);
+  setTimeout(done, HINT_FLIGHT_MS);
 }
 
 function enterVotingScreen(hints, votingTimerSeconds) {
@@ -1177,6 +1359,7 @@ function enterVotingScreen(hints, votingTimerSeconds) {
   const eliminated = amEliminated();
   spectatorNote.hidden = !eliminated;
   voteList.innerHTML = "";
+  myVoteTarget = null;
   if (!eliminated) {
     // The server is what actually blocks a self-vote or a vote for someone
     // already ejected (game.py submit_vote) — this is just not offering
@@ -1185,19 +1368,41 @@ function enterVotingScreen(hints, votingTimerSeconds) {
       const li = document.createElement("li");
       const btn = document.createElement("button");
       btn.className = "ghost";
+      btn.dataset.voteTarget = p.id;
       btn.textContent = `Vote ${p.name}`;
-      btn.addEventListener("click", () => {
-        socket.send(JSON.stringify({ type: "submit_vote", target_id: p.id }));
-      });
+      btn.addEventListener("click", () => castVote(p.id));
       li.appendChild(btn);
       voteList.appendChild(li);
     }
   }
+  skipVoteBtn.hidden = eliminated;
+  skipVoteNote.hidden = eliminated;
+  markChosenVote();
   voteProgress.textContent = "";
 
   showScreen("screen-voting");
   startVotingCountdown(votingTimerSeconds);
 }
+
+const SKIP_VOTE = "__skip__"; // must match rooms.SKIP_VOTE
+
+function castVote(targetId) {
+  myVoteTarget = targetId;
+  markChosenVote();
+  socket.send(JSON.stringify({ type: "submit_vote", target_id: targetId }));
+}
+
+function markChosenVote() {
+  // Purely local feedback. Votes stay changeable until the phase resolves
+  // (the server just overwrites the entry), so this highlights rather than
+  // disables — being able to switch your vote after an argument is the point.
+  for (const btn of voteList.querySelectorAll("button")) {
+    btn.classList.toggle("is-chosen", btn.dataset.voteTarget === myVoteTarget);
+  }
+  skipVoteBtn.classList.toggle("is-chosen", myVoteTarget === SKIP_VOTE);
+}
+
+skipVoteBtn.addEventListener("click", () => castVote(SKIP_VOTE));
 
 function startVotingCountdown(seconds) {
   if (votingCountdownInterval) clearInterval(votingCountdownInterval);
@@ -1224,7 +1429,7 @@ function enterGuessScreen(data) {
   guessWaiting.textContent = `Waiting for ${data.guesser_name}…`;
   guessInput.value = "";
   guessInput.disabled = false;
-  guessSubmitBtn.disabled = false;
+  resetGuessPicker();
 
   if (guessCountdownInterval) clearInterval(guessCountdownInterval);
   guessCountdownInterval = runCountdown(
@@ -1238,13 +1443,111 @@ function enterGuessScreen(data) {
   if (isMe) guessInput.focus();
 }
 
+/* ------------------------- last-chance guess picker -----------------------
+   Typing the character's name from memory used to decide the round: a guess
+   that was conceptually right lost to a missing hyphen or a different
+   romanisation. The list is the real pool for this game's difficulty, sent by
+   the server, and what gets submitted is the entry's id — so the only thing
+   being tested is whether they know the character.
+--------------------------------------------------------------------------- */
+
+const GUESS_RESULT_LIMIT = 8; // enough to choose from without becoming a wall
+
+function resetGuessPicker() {
+  selectedGuess = null;
+  guessInput.value = "";
+  guessSelection.hidden = true;
+  guessSubmitBtn.disabled = true;
+  closeGuessOptions();
+}
+
+function closeGuessOptions() {
+  guessOptionsList.hidden = true;
+  guessOptionsList.innerHTML = "";
+  guessInput.setAttribute("aria-expanded", "false");
+}
+
+function matchGuessOptions(query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  // Prefix matches first — typing "lu" should surface Luffy above characters
+  // who merely contain "lu" somewhere in the middle.
+  const starts = [];
+  const contains = [];
+  for (const opt of guessOptions) {
+    const name = opt.name.toLowerCase();
+    if (name.startsWith(q)) starts.push(opt);
+    else if (name.includes(q)) contains.push(opt);
+    if (starts.length >= GUESS_RESULT_LIMIT) break;
+  }
+  return starts.concat(contains).slice(0, GUESS_RESULT_LIMIT);
+}
+
+function renderGuessOptions(matches) {
+  guessOptionsList.innerHTML = "";
+  if (!matches.length) {
+    closeGuessOptions();
+    return;
+  }
+  for (const opt of matches) {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "combobox-option";
+    btn.textContent = opt.name;
+    btn.addEventListener("click", () => selectGuess(opt));
+    li.appendChild(btn);
+    guessOptionsList.appendChild(li);
+  }
+  guessOptionsList.hidden = false;
+  guessInput.setAttribute("aria-expanded", "true");
+}
+
+function selectGuess(opt) {
+  selectedGuess = opt;
+  guessInput.value = opt.name;
+  guessSelection.textContent = `Locked on: ${opt.name}`;
+  guessSelection.hidden = false;
+  guessSubmitBtn.disabled = false;
+  closeGuessOptions();
+}
+
+guessInput.addEventListener("input", () => {
+  // Editing after choosing clears the selection: the submitted id must always
+  // be the one whose name is actually in the box.
+  if (selectedGuess && guessInput.value !== selectedGuess.name) {
+    selectedGuess = null;
+    guessSelection.hidden = true;
+    guessSubmitBtn.disabled = true;
+  }
+  renderGuessOptions(matchGuessOptions(guessInput.value));
+});
+
+guessInput.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeGuessOptions();
+  // Enter with exactly one match picks it, so the fast path is still typing.
+  if (event.key === "Enter" && !selectedGuess) {
+    const matches = matchGuessOptions(guessInput.value);
+    if (matches.length) {
+      event.preventDefault();
+      selectGuess(matches[0]);
+    }
+  }
+});
+
+document.addEventListener("click", (event) => {
+  if (!guessOptionsList.hidden && !event.target.closest(".combobox")) closeGuessOptions();
+});
+
 guessForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const guess = guessInput.value.trim();
-  if (!guess) return;
-  socket.send(JSON.stringify({ type: "submit_guess", guess }));
+  if (!selectedGuess) return; // nothing valid chosen yet
+  socket.send(
+    JSON.stringify({ type: "submit_guess", guess_id: selectedGuess.id, guess: selectedGuess.name })
+  );
   guessInput.disabled = true;
   guessSubmitBtn.disabled = true;
+  closeGuessOptions();
   guessWaiting.textContent = "Locked in…";
   guessWaiting.hidden = false;
 });
@@ -1256,7 +1559,15 @@ function ejectionSummary(data) {
     return { emoji: "🚪", title: "Someone left", sub: "A player disconnected, changing the balance." };
   }
   if (data.tie) {
-    return { emoji: "🤝", title: "Tied vote", sub: "No one was ejected this round." };
+    // Deadlocking and deciding to skip both end with nobody ejected, but they
+    // are different rounds and shouldn't read the same.
+    return data.no_ejection_reason === "skip"
+      ? {
+          emoji: "🤷",
+          title: "Vote skipped",
+          sub: `The room chose not to eject anyone (${data.skips || 0} skipped).`,
+        }
+      : { emoji: "🤝", title: "Tied vote", sub: "No one was ejected this round." };
   }
   return {
     emoji: data.was_imposter ? "🔪" : "😬",
@@ -1388,6 +1699,11 @@ function handleRoundReveal(data) {
     newRoundBtn.hidden = myId !== hostId;
     newRoundBtn.disabled = false;
     nextRoundLoading.hidden = true;
+    // Two exits from a finished game: straight into another round with the
+    // same setup, or back to the lobby to change settings / let people in.
+    backToLobbyBtn.hidden = myId !== hostId;
+    backToLobbyBtn.disabled = false;
+    backToLobbyNote.hidden = myId === hostId;
 
     // The character is only ever revealed at game-over, never mid-game, so
     // this feature only makes sense to offer here -- and it's reset fresh
@@ -1415,6 +1731,8 @@ function handleRoundReveal(data) {
     newRoundBtn.hidden = true;
     nextRoundLoading.hidden = false;
     characterDetailsBlock.hidden = true;
+    backToLobbyBtn.hidden = true;
+    backToLobbyNote.hidden = true;
   }
 
   showScreen("screen-reveal");
@@ -1465,4 +1783,9 @@ newRoundBtn.addEventListener("click", () => {
   newRoundBtn.disabled = true;
   newRoundLoading.hidden = false;
   socket.send(JSON.stringify({ type: "new_round" }));
+});
+
+backToLobbyBtn.addEventListener("click", () => {
+  backToLobbyBtn.disabled = true;
+  socket.send(JSON.stringify({ type: "return_to_lobby" }));
 });

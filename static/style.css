@@ -178,7 +178,12 @@ button.ghost {
 
 button.ghost:active:not(:disabled) { transform: translateY(1px); }
 
-form {
+/* :not([hidden]) for the same reason as every other display: rule here --
+   an author `display` beats the UA stylesheet's `[hidden] { display: none }`
+   whatever the specificity, so an unscoped rule silently cancels the hidden
+   attribute. #guess-form is toggled per-player during the last-chance guess
+   and was staying visible for everyone because of exactly this. */
+form:not([hidden]) {
   display: flex;
   gap: 0.5rem;
 }
@@ -836,4 +841,185 @@ main li:last-child { border-bottom: none; }
   display: block;
   border-radius: var(--radius-sm);
   border: 1.5px solid var(--border);
+}
+
+/* ------------------------------------------------------------------
+   Phase 3.11 — skip vote, guess picker, hint reveal.
+   ------------------------------------------------------------------ */
+
+/* --- vote selection feedback -------------------------------------- */
+
+/* Votes stay changeable until the phase resolves, so the chosen option is
+   highlighted rather than locked -- switching your vote mid-argument is a
+   legitimate move, not a mistake to guard against. */
+#vote-list button.is-chosen,
+.skip-vote-btn.is-chosen {
+  border-color: var(--coral);
+  background: #ffeee7;
+  color: var(--coral-deep);
+  font-weight: 700;
+}
+
+.skip-vote-btn {
+  width: 100%;
+  margin-top: 0.6rem;
+  text-align: left;
+}
+
+#skip-vote-note:not([hidden]) {
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+}
+
+/* --- last-chance guess picker -------------------------------------- */
+
+.combobox {
+  position: relative;
+}
+
+.combobox-list:not([hidden]) {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.3rem);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+  background: var(--card);
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lift);
+  /* The pool runs to ~200 names; the list is capped in JS, but scrolling
+     inside the dropdown keeps a long match set off the page body. */
+  max-height: 15rem;
+  overflow-y: auto;
+}
+
+.combobox-list li { border-bottom: none; padding: 0; }
+
+.combobox-option {
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.65rem;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 0.98rem;
+  color: var(--ink);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.combobox-option:hover,
+.combobox-option:focus-visible {
+  background: var(--parchment);
+}
+
+.guess-selection:not([hidden]) {
+  margin: 0.6rem 0 0;
+  font-weight: 700;
+  color: var(--coral-deep);
+}
+
+/* --- hint reveal moment -------------------------------------------- */
+
+#hint-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  /* Non-negotiable: the reveal is a flourish, and the next player has to be
+     able to type straight through it. */
+  pointer-events: none;
+}
+
+.hint-reveal:not([hidden]) {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  transform-origin: center center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.4rem 2rem;
+  background: var(--card);
+  border: 2.5px solid var(--coral);
+  border-radius: 22px;
+  box-shadow: 0 18px 48px rgba(122, 82, 48, 0.28);
+  text-align: center;
+  max-width: min(88vw, 30rem);
+  will-change: transform, opacity;
+}
+
+.hint-reveal-who:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--ink-soft);
+}
+
+.hint-reveal-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--border-strong);
+}
+
+.hint-reveal-emoji { font-size: 2rem; line-height: 1; }
+
+.hint-reveal-name {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.hint-reveal-word {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  /* Scales down on narrow screens so a long hint never overflows the card. */
+  font-size: clamp(1.9rem, 7vw, 3.1rem);
+  line-height: 1.15;
+  color: var(--coral-deep);
+  overflow-wrap: anywhere;
+}
+
+.hint-reveal.is-entering {
+  animation: hint-pop 380ms cubic-bezier(0.2, 1.3, 0.45, 1) both;
+}
+
+.hint-reveal.is-flying { opacity: 1; }
+
+.hint-reveal.is-leaving {
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+@keyframes hint-pop {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.72); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+/* The card gives a small acknowledging pulse as the word lands in it. */
+.player-card.is-hint-landing {
+  animation: hint-land 520ms ease;
+}
+
+@keyframes hint-land {
+  0%   { box-shadow: var(--shadow-soft); }
+  40%  { box-shadow: 0 0 0 4px rgba(239, 125, 87, 0.35); }
+  100% { box-shadow: var(--shadow-soft); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Same beat, no travel: the word still appears large and centred so the
+     moment isn't missed, it just fades instead of flying. */
+  .hint-reveal.is-entering,
+  .hint-reveal.is-static { animation: none; }
+  .player-card.is-hint-landing { animation: none; }
 }

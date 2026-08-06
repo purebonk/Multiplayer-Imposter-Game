@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Anime Imposter mark. Original geometry in the app's own palette
+       (cream / coral / gold / ink) rather than any character artwork, which
+       would be someone else's IP on a publicly deployed page.
+
+       Reads as a ramen bowl at a glance and as a masked face on a second look
+       - a bowl rim with two "eye" slots - which is the game in one shape.
+       Built from plain circles and rects so it stays legible at 16px. -->
+  <circle cx="32" cy="32" r="31" fill="#ef7d57"/>
+  <circle cx="32" cy="32" r="25" fill="#fdf4e8"/>
+
+  <!-- bowl / mask body -->
+  <path d="M11 30 h42 a21 21 0 0 1 -42 0 z" fill="#4a3728"/>
+  <!-- broth line -->
+  <rect x="11" y="30" width="42" height="3.5" rx="1.75" fill="#f4b942"/>
+
+  <!-- the two eye slots that make it a mask -->
+  <ellipse cx="24" cy="40" rx="4.6" ry="5.4" fill="#fdf4e8"/>
+  <ellipse cx="40" cy="40" rx="4.6" ry="5.4" fill="#fdf4e8"/>
+
+  <!-- steam: one curl leaning each way, so the top half isn't dead space -->
+  <path d="M25 22 q-4 -4 0 -8 q4 -4 0 -8" stroke="#ef7d57" stroke-width="3"
+        stroke-linecap="round" fill="none" opacity="0.85"/>
+  <path d="M39 22 q4 -4 0 -8 q-4 -4 0 -8" stroke="#f4b942" stroke-width="3"
+        stroke-linecap="round" fill="none" opacity="0.9"/>
+</svg>

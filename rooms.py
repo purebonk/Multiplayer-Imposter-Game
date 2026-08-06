@@ -24,6 +24,11 @@ MAX_IMPOSTERS = 3
 #              plausible and the deduction becomes much subtler
 IMPOSTER_MODE_OPTIONS = ("blind", "similar")
 
+# Sentinel stored in room.votes for an explicit abstention. Not a player id, so
+# it can never collide with one (ids are uuid4) and never lands in the ejection
+# tally by accident.
+SKIP_VOTE = "__skip__"
+
 # Avatars are referenced by a short id ("goku"), never by URL -- the client
 # never gets to tell the server what image to show, it only picks from this
 # roster. AVATAR_LOOKUP is what validation checks against.
@@ -133,6 +138,10 @@ class Room:
     # crew running out of rounds (repeated ties) is a loss condition, so
     # this can't be left uncapped or a stalling imposter could never lose.
     max_rounds: int = 1
+    # True only once a game has actually finished. REVEAL is used both between
+    # elimination rounds and at game over, so the state alone can't tell those
+    # apart -- and settings may only be edited in the second case.
+    game_over: bool = False
 
     # keyed by player_id -> {"name": str, "hint": str}; the name is captured
     # at submit time so a hint given just before someone disconnects still
@@ -144,6 +153,12 @@ class Room:
     turn_index: int = 0
     turn_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
     voting_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
+
+    # The post-reveal pause before the next round, plus a watchdog that forces
+    # the round forward if that pause never completes. Two separate tasks on
+    # purpose: whatever kills the first must not be able to kill the second.
+    transition_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
+    watchdog_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
 
     # Last-chance guess. `pending_reveal` parks the round_reveal payload that
     # was about to be broadcast so the guess outcome can be folded into it
@@ -213,16 +228,27 @@ class Room:
         except Exception:
             pass
 
+    def cancel_task(self, attr: str) -> None:
+        """Clear a stored timer task, never cancelling the task we're inside.
+
+        This guard is the whole point. Every one of these timers ends by
+        resolving the phase it was timing, and that resolution path clears the
+        timers -- so a timer callback would reach in and cancel *itself*.
+        `Task.cancel()` on the running task doesn't no-op: it arms the task, and
+        CancelledError is raised at its next real suspension point, tearing the
+        coroutine down mid-way through work it had already started. That is
+        exactly how a resolved vote could broadcast to some players and then
+        die before starting the next round. Clearing the attribute still
+        happens either way, so the bookkeeping is identical.
+        """
+        task = getattr(self, attr)
+        setattr(self, attr, None)
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+
     def cancel_timers(self) -> None:
-        if self.turn_task is not None:
-            self.turn_task.cancel()
-            self.turn_task = None
-        if self.voting_task is not None:
-            self.voting_task.cancel()
-            self.voting_task = None
-        if self.guess_task is not None:
-            self.guess_task.cancel()
-            self.guess_task = None
+        for attr in ("turn_task", "voting_task", "guess_task", "transition_task", "watchdog_task"):
+            self.cancel_task(attr)
 
     def reset_round_state(self) -> None:
         """Clears per-round state (hints/votes/turns). Does NOT touch
@@ -246,6 +272,7 @@ class Room:
         self.imposter_profiles = {}
         self.eliminated_ids = set()
         self.round_number = 0
+        self.game_over = False
 
 
 class RoomCapacityError(RuntimeError):
