@@ -12,9 +12,12 @@ from fastapi import WebSocket
 
 import config
 from avatar_options import AVATAR_OPTIONS
+from characters import DIFFICULTY_TIERS
 
 TIMER_OPTIONS = (15, 30, 60, None)
-DIFFICULTY_OPTIONS = ("easy", "hard")
+# Imported rather than re-listed so the server can never accept a tier the
+# character pool has no concept of (or reject one it does).
+DIFFICULTY_OPTIONS = DIFFICULTY_TIERS
 MAX_IMPOSTERS = 3
 
 # How much the imposter is given to work with, borrowed from the Undercover /

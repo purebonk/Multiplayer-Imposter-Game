@@ -3,17 +3,67 @@ import random
 
 from character_pool_data import ANIME_POOL
 
-# role is MAL's own "how central is this character" tag ("Main" | "Supporting"),
-# which is a far more reliable difficulty signal than trying to threshold a
-# favorites count that varies wildly in scale between franchises.
-EASY_ROLE = "Main"
-HARD_ROLE = "Supporting"
+# Difficulty is derived from two stored signals rather than one, because
+# recognisability genuinely is the product of both -- see the long note at the
+# top of character_pool_data.py. `reach` is how far the SHOW travelled outside
+# anime fandom; `prominence` is how central the CHARACTER is within it.
+#
+#              mega       popular    cult
+#   core       easy       easy       medium
+#   notable    medium     medium     hard
+#   deep       hard       hard       hard
+#
+# Reading the two edges of that grid is the whole argument for the redesign:
+#   - a core character of a mega show is easy even when MAL calls them
+#     "Supporting" (Vegeta, Sasuke, Mikasa, Itachi, Gojo);
+#   - the literal protagonist of a cult show is only medium, because leading
+#     Steins;Gate does not make you recognisable to a table of casual players.
+DIFFICULTY_MATRIX = {
+    ("core", "mega"): "easy",
+    ("core", "popular"): "easy",
+    ("core", "cult"): "medium",
+    ("notable", "mega"): "medium",
+    ("notable", "popular"): "medium",
+    ("notable", "cult"): "hard",
+    ("deep", "mega"): "hard",
+    ("deep", "popular"): "hard",
+    ("deep", "cult"): "hard",
+}
+
+# Ordered easy -> hard. Exposed so rooms.py validates against one list rather
+# than keeping a second copy that could drift.
+DIFFICULTY_TIERS = ("easy", "medium", "hard")
+
+DEFAULT_REACH = "popular"
+DEFAULT_PROMINENCE = "notable"
 
 
-def _filter_by_difficulty(characters: list[dict], difficulty: str) -> list[dict]:
-    tier = EASY_ROLE if difficulty == "easy" else HARD_ROLE
-    candidates = [c for c in characters if c["role"] == tier]
-    return candidates or characters
+def difficulty_of(anime: dict, character: dict) -> str:
+    """The tier a given character falls into. Unknown/missing values fall back
+    to the middle of each axis rather than raising -- a data typo should cost
+    one character's placement, not crash a game start."""
+    reach = anime.get("reach", DEFAULT_REACH)
+    prominence = character.get("prominence", DEFAULT_PROMINENCE)
+    return DIFFICULTY_MATRIX.get((prominence, reach), "medium")
+
+
+def _filter_by_difficulty(anime: dict, difficulty: str) -> list[dict]:
+    """Characters in this anime at this tier. May legitimately be empty --
+    not every show has a genuine deep cut or a mega-famous face, and callers
+    are expected to pick an anime that does rather than paper over it."""
+    return [c for c in anime["characters"] if difficulty_of(anime, c) == difficulty]
+
+
+def _anime_with_tier(difficulty: str) -> list[dict]:
+    """Anime that actually contain a character at this tier.
+
+    Selection is still anime-first then character (unchanged mechanism), but
+    the candidate anime are now filtered up front. Previously an anime with
+    nobody in the requested tier silently fell back to its ENTIRE cast, which
+    quietly leaked easy characters into hard mode. With three tiers that
+    fallback would have fired constantly and blurred the tiers into noise.
+    """
+    return [a for a in ANIME_POOL if _filter_by_difficulty(a, difficulty)]
 
 
 def _pick_decoy(anime: dict, chosen: dict, difficulty: str) -> "str | None":
@@ -23,7 +73,7 @@ def _pick_decoy(anime: dict, chosen: dict, difficulty: str) -> "str | None":
     than give up -- a same-series decoy is what makes the imposter's hints
     plausible instead of pure guesswork. Returns None only when the anime
     genuinely has nobody else."""
-    same_tier = [c for c in _filter_by_difficulty(anime["characters"], difficulty)
+    same_tier = [c for c in _filter_by_difficulty(anime, difficulty)
                  if c["name"] != chosen["name"]]
     if same_tier:
         return random.choice(same_tier)["name"]
@@ -46,17 +96,15 @@ def pool_entries(difficulty: str) -> tuple:
     Cached because it's rebuilt on every guess phase and the underlying pool
     is a static import that never changes at runtime.
 
-    Built through _filter_by_difficulty rather than by re-filtering on role,
-    so it lands on exactly the set get_character() can actually return. That
-    matters: _filter_by_difficulty falls back to an anime's whole cast when it
-    has nobody in the requested tier (KonoSuba has no "Main" entries at all),
-    so a role-based filter here would omit characters an easy game can genuinely
-    choose -- and the guesser would have no way to pick the right answer.
+    Built from the same two helpers get_character() uses, so it is exactly the
+    set a game at this difficulty can produce -- never a re-derivation that
+    could drift. If this and get_character disagreed, the correct answer would
+    simply be missing from the picker and the guess would be unwinnable.
     """
     names = {
         c["name"]
-        for anime in ANIME_POOL
-        for c in _filter_by_difficulty(anime["characters"], difficulty)
+        for anime in _anime_with_tier(difficulty)
+        for c in _filter_by_difficulty(anime, difficulty)
     }
     # Index-as-id is stable for the process because the sort is total and the
     # source data is immutable; the server re-derives the name from the id at
@@ -75,24 +123,37 @@ def resolve_pool_entry(difficulty: str, entry_id) -> "str | None":
 
 
 async def get_character(difficulty: str = "easy") -> dict:
-    """Picks a random character from the static, pre-built pool
-    (character_pool_data.py, generated by build_character_pool.py). This is
-    the ONLY character source used during actual gameplay -- no network
-    call, so starting a round is instant and never depends on Jikan being
-    up. The live Jikan lookup in main.py's /api/character-details endpoint
-    is a completely separate, decorative, post-game-only feature and does
-    not feed back into this.
+    """Picks a random character from the static, hand-curated pool
+    (character_pool_data.py). This is the ONLY character source used during
+    actual gameplay -- no network call, so starting a round is instant and
+    never depends on Jikan being up. The live Jikan lookup in main.py's
+    /api/character-details endpoint is a completely separate, decorative,
+    post-game-only feature and does not feed back into this.
+
+    Mechanism is unchanged from before the retiering: pick an anime, then pick
+    a character from it at the requested tier. Only the candidate anime are
+    now pre-filtered, so the tier is honoured rather than silently widened.
 
     `decoy` is the alternate same-series character handed to imposters in
     "similar" mode; it is always computed but only ever sent to a client
     when that mode is on."""
-    anime = random.choice(ANIME_POOL)
-    candidates = _filter_by_difficulty(anime["characters"], difficulty)
-    chosen = random.choice(candidates)
+    pool = _anime_with_tier(difficulty)
+    if not pool:
+        # Only reachable if the data file itself is broken; a clean failure
+        # here surfaces as "couldn't fetch a character, try again" rather
+        # than an IndexError killing the socket.
+        raise RuntimeError(f"no characters available at difficulty {difficulty!r}")
+    anime = random.choice(pool)
+    chosen = random.choice(_filter_by_difficulty(anime, difficulty))
     return {
         "character": chosen["name"],
-        "character_role": chosen["role"],
         "anime_title": anime["title"],
         "genres": anime["genres"],
+        # Collapsed to MAL's old vocabulary on purpose: this only feeds the
+        # imposter's vague "a main character" / "a supporting character" hint,
+        # and leaking the full three-way prominence there would narrow the
+        # answer more than the hint is meant to.
+        "character_role": "Main" if chosen.get("prominence") == "core" else "Supporting",
+        "difficulty": difficulty_of(anime, chosen),
         "decoy": _pick_decoy(anime, chosen, difficulty),
     }
