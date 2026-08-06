@@ -16,6 +16,7 @@ the client's disabled button is politeness, this is the actual limit.
 
 import time
 
+from limits import clean_text
 from rooms import Room, player_summary
 
 REACTION_EMOJIS = ("👀", "🤔", "😂", "💀", "🔥")
@@ -72,13 +73,12 @@ def _resolve(room: Room, kind: str, value: str) -> "tuple[str, bool] | None":
         return ACCUSATION_TEMPLATE.format(name=accused.name), False
 
     if kind == "free":
-        text = (value or "").strip()
+        # clean_text also strips zero-width/control characters, so a bubble
+        # can't be used to render invisible payloads or fake another name.
+        text = clean_text(value, MAX_FREE_TEXT)
         if not text:
             return None
-        # Truncate rather than reject: the client already caps the input, so
-        # anything longer is a raw-socket client, and a clipped bubble is a
-        # friendlier failure than a silently dropped one.
-        return text[:MAX_FREE_TEXT], False
+        return text, False
 
     return None
 

@@ -1,6 +1,9 @@
-fastapi
-uvicorn[standard]
-httpx
+# Pinned so a deploy builds the same tree that was tested locally. Without
+# pins, Render resolves latest-at-build-time and can drift from dev.
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+httpx==0.28.1
+
 # Used only by build_character_pool.py / build_avatar_options.py (the offline
 # one-time data scripts), not by the running server.
-Pillow
+Pillow==12.3.0

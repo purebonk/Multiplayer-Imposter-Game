@@ -2,7 +2,9 @@ import asyncio
 import math
 import random
 
+import config
 from characters import get_character
+from limits import clean_text
 from rooms import (
     DIFFICULTY_OPTIONS,
     IMPOSTER_MODE_OPTIONS,
@@ -283,7 +285,10 @@ async def submit_hint(room: Room, player_id: str, hint: str) -> None:
         room.turn_task.cancel()
         room.turn_task = None
 
-    hint = hint.strip() or NO_HINT_PLACEHOLDER
+    # Server-side cap and normalisation. The input's maxlength is a UI
+    # nicety; a raw socket can send megabytes, and a hint is rebroadcast to
+    # every player, so an oversized one is an amplification vector.
+    hint = clean_text(hint, config.MAX_HINT_LENGTH) or NO_HINT_PLACEHOLDER
     await _record_hint(room, player_id, hint)
     room.turn_index += 1
     await _start_turn(room)
@@ -395,7 +400,7 @@ async def _guess_timeout(room: Room, guesser_id: str) -> None:
 async def submit_guess(room: Room, player_id: str, guess: str) -> None:
     if room.state != RoomState.GUESSING or player_id != room.guesser_id:
         return
-    await _finish_guess(room, guess_text=(guess or "").strip()[:60])
+    await _finish_guess(room, guess_text=clean_text(guess, config.MAX_GUESS_LENGTH))
 
 
 async def _finish_guess(room: Room, guess_text: "str | None") -> None:

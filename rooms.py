@@ -1,6 +1,7 @@
 import asyncio
 import random
 import string
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -8,6 +9,7 @@ from typing import Optional
 
 from fastapi import WebSocket
 
+import config
 from avatar_options import AVATAR_OPTIONS
 
 TIMER_OPTIONS = (15, 30, 60, None)
@@ -89,6 +91,8 @@ class Player:
 class Room:
     code: str
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    # Monotonic so the sweeper is immune to wall-clock adjustments.
+    last_activity: float = field(default_factory=time.monotonic)
     players: dict[str, Player] = field(default_factory=dict)
     host_id: Optional[str] = None
     state: RoomState = RoomState.LOBBY
@@ -133,6 +137,9 @@ class Room:
     guesser_id: Optional[str] = None
     pending_reveal: Optional[dict] = None
     guess_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
+
+    def touch(self) -> None:
+        self.last_activity = time.monotonic()
 
     def player_summaries(self) -> list[dict]:
         return [player_summary(p) for p in self.players.values()]
@@ -200,6 +207,12 @@ class Room:
         self.round_number = 0
 
 
+class RoomCapacityError(RuntimeError):
+    """Raised when the global room ceiling is reached. Surfaced to the caller
+    as a clean refusal rather than letting the instance run itself out of
+    memory."""
+
+
 class RoomManager:
     def __init__(self) -> None:
         self._rooms: dict[str, Room] = {}
@@ -211,6 +224,8 @@ class RoomManager:
         self._session_rooms: dict[str, str] = {}
 
     def create_room(self) -> Room:
+        if len(self._rooms) >= config.MAX_ROOMS:
+            raise RoomCapacityError(f"room limit reached ({config.MAX_ROOMS})")
         code = self._generate_unique_code()
         room = Room(code=code)
         self._rooms[code] = room
@@ -220,7 +235,32 @@ class RoomManager:
         return self._rooms.get(code.upper())
 
     def remove_room(self, code: str) -> None:
-        self._rooms.pop(code, None)
+        room = self._rooms.pop(code, None)
+        # Timers hold a reference to the room and would otherwise fire against
+        # a room nobody can reach any more.
+        if room is not None:
+            room.cancel_timers()
+
+    def room_count(self) -> int:
+        return len(self._rooms)
+
+    def sweep_stale(self) -> list[str]:
+        """Frees rooms nothing can reach any more. Two cases matter:
+        a room created via the API but never joined (otherwise it lives
+        forever), and a room whose sockets are technically open but which has
+        seen no activity for a long time."""
+        now = time.monotonic()
+        removed = []
+        for code, room in list(self._rooms.items()):
+            idle = now - room.last_activity
+            empty_expired = not room.players and idle > config.EMPTY_ROOM_TTL_SECONDS
+            idle_expired = idle > config.IDLE_ROOM_TTL_SECONDS
+            if empty_expired or idle_expired:
+                for player in list(room.players.values()):
+                    self.release_session(player.session_id)
+                self.remove_room(code)
+                removed.append(code)
+        return removed
 
     def session_room_code(self, session_id: str) -> Optional[str]:
         return self._session_rooms.get(session_id)
