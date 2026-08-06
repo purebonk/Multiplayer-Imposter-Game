@@ -119,6 +119,9 @@ let reactionOptions = { emojis: ["👀", "🤔", "😂", "💀", "🔥"], phrase
 // temporal dead zone and throw.
 const STORAGE_NAME = "animeImposter.name";
 const STORAGE_AVATAR = "animeImposter.avatarId";
+// Everything needed to reclaim a seat after a refresh. The token is the only
+// part the server actually trusts.
+const STORAGE_SESSION = "animeImposter.session";
 
 function storageGet(key) {
   try {
@@ -134,6 +137,31 @@ function storageSet(key, value) {
   } catch {
     /* non-fatal */
   }
+}
+
+function storageRemove(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* non-fatal */
+  }
+}
+
+function saveSession(roomCode, token) {
+  storageSet(STORAGE_SESSION, JSON.stringify({ room_code: roomCode, token }));
+}
+
+function loadSession() {
+  try {
+    const parsed = JSON.parse(storageGet(STORAGE_SESSION) || "null");
+    return parsed && parsed.room_code && parsed.token ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearSession() {
+  storageRemove(STORAGE_SESSION);
 }
 
 // Captured once from game_started and reused every round — the character
@@ -158,6 +186,10 @@ let roundLog = [];
 let turnCountdownInterval = null;
 let votingCountdownInterval = null;
 let reactionCooldownUntil = 0;
+// Suppresses the "connection lost" alert when the player chose to leave.
+let leavingDeliberately = false;
+// Resolved by the `reconnected` message so attemptReconnect() knows it worked.
+let reconnectResolver = null;
 
 function showScreen(id) {
   for (const s of screens) s.hidden = s.id !== id;
@@ -270,9 +302,60 @@ async function loadReactionOptions() {
   }
 }
 
-loadAvatarRoster();
-loadReactionOptions();
-restoreRememberedName();
+/* ---------------------------- leave room ---------------------------- */
+
+function leaveRoom() {
+  leavingDeliberately = true;
+  // Clear first: if the socket closes before the server's ack lands, a
+  // refresh must not try to crawl back into a room they chose to leave.
+  clearSession();
+  try {
+    socket?.send(JSON.stringify({ type: "leave_room" }));
+    socket?.close();
+  } catch {
+    /* already gone */
+  }
+  socket = null;
+
+  // Reset per-game state so the next join starts clean.
+  players = [];
+  remainingPlayers = [];
+  hintsByPlayerId = {};
+  roundLog = [];
+  currentTurnPlayerId = null;
+  if (turnCountdownInterval) clearInterval(turnCountdownInterval);
+  if (votingCountdownInterval) clearInterval(votingCountdownInterval);
+  if (guessCountdownInterval) clearInterval(guessCountdownInterval);
+
+  createBtn.disabled = false;
+  joinBtn.disabled = false;
+  showScreen("screen-home");
+  leavingDeliberately = false;
+}
+
+for (const id of ["leave-room-btn", "leave-room-btn-hints", "leave-room-btn-voting"]) {
+  document.getElementById(id)?.addEventListener("click", () => {
+    if (confirm("Leave this room?")) leaveRoom();
+  });
+}
+
+/* ------------------------------- boot ------------------------------- */
+
+async function boot() {
+  await loadAvatarRoster();
+  loadReactionOptions();
+  restoreRememberedName();
+
+  // Try to reclaim a seat before showing any screen, so a refresh lands the
+  // player back where they were instead of flashing the name form.
+  const resumed = await attemptReconnect();
+  if (!resumed) {
+    socket = null;
+    showScreen("screen-name");
+  }
+}
+
+boot();
 
 /* --------------------------- player cards --------------------------- */
 
@@ -463,6 +546,11 @@ function closeAllPickers() {
 document.addEventListener("click", closeAllPickers);
 
 function statusFor(player, opts) {
+  // A dropped player's seat is being held — say so on the card rather than
+  // leaving it looking frozen or silently vanishing mid-round.
+  if (player.connected === false) {
+    return { text: "Reconnecting…", className: "player-status is-reconnecting-text" };
+  }
   // Lobby and the end-game roles grid both show the player's chosen
   // character; only the in-game modes show hint/turn state.
   if (opts.mode === "lobby" || opts.mode === "reveal") {
@@ -489,6 +577,10 @@ function updateCard(entry, player, opts) {
   entry.statusEl.className = status.className;
 
   entry.el.classList.toggle("is-you", player.id === myId);
+  // `connected` is absent on payloads that predate it (e.g. the imposter
+  // profiles snapshotted at game start), so only treat an explicit false
+  // as disconnected.
+  entry.el.classList.toggle("is-reconnecting", player.connected === false);
   entry.el.classList.toggle(
     "is-active",
     opts.mode !== "lobby" && player.id === currentTurnPlayerId && !hintsByPlayerId[player.id]
@@ -570,7 +662,7 @@ nameForm.addEventListener("submit", (event) => {
   showScreen("screen-home");
 });
 
-function connectToRoom(code) {
+function connectToRoom(code, reconnectToken = null) {
   // Guards against a double-click (or any other path) opening a second
   // WebSocket while one is already live — the client-side half of
   // preventing duplicate joins; see main.py for the server-side half,
@@ -587,6 +679,7 @@ function connectToRoom(code) {
     session_id: tabSessionId,
     avatar_id: myAvatarId || "",
   });
+  if (reconnectToken) params.set("reconnect_token", reconnectToken);
   socket = new WebSocket(`${protocol}://${location.host}/ws/${code}?${params}`);
 
   socket.addEventListener("message", (event) => {
@@ -596,9 +689,45 @@ function connectToRoom(code) {
   socket.addEventListener("close", () => {
     createBtn.disabled = false;
     joinBtn.disabled = false;
-    if (!isBeforeRoomJoin()) {
-      alert("Disconnected from the room.");
+    // A deliberate leave clears the session first, so this only fires for
+    // real drops. Refreshing is the recovery path, so say so rather than
+    // just reporting a failure.
+    if (!isBeforeRoomJoin() && !leavingDeliberately) {
+      alert("Connection lost. Refresh within a few seconds to rejoin your seat.");
     }
+  });
+}
+
+/* ------------------------- reconnect on load ------------------------- */
+
+async function attemptReconnect() {
+  const saved = loadSession();
+  if (!saved) return false;
+
+  const name = storageGet(STORAGE_NAME);
+  if (!name) {
+    clearSession();
+    return false;
+  }
+  myName = name;
+  homePlayerName.textContent = myName;
+
+  // Give the socket a moment to either resume or be refused; if the room is
+  // gone or the token is stale the server closes it and we fall through to
+  // the normal home screen rather than hanging on a dead reconnect.
+  return await new Promise((resolve) => {
+    let settled = false;
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      if (!ok) clearSession();
+      resolve(ok);
+    };
+
+    reconnectResolver = () => done(true);
+    connectToRoom(saved.room_code, saved.token);
+    socket.addEventListener("close", () => done(false));
+    setTimeout(() => done(false), 5000);
   });
 }
 
@@ -671,14 +800,30 @@ function handleMessage(data) {
       numImposters = data.num_imposters;
       imposterMode = data.imposter_mode;
       lastChanceGuess = data.last_chance_guess;
+      if (data.reconnect_token) saveSession(myRoomCode, data.reconnect_token);
       renderLobby();
       showScreen("screen-lobby");
       break;
+    case "reconnected":
+      handleReconnected(data);
+      break;
     case "player_joined":
     case "player_left":
+    case "player_status":
       players = data.players;
       hostId = data.host_id;
+      // Keep the in-game roster in sync: refresh connected flags so cards can
+      // show "Reconnecting…" mid-round, AND drop anyone who has actually left
+      // the room. Mapping alone would update a departed player's fields but
+      // leave their card on screen forever.
+      if (data.players) {
+        const present = new Map(data.players.map((p) => [p.id, p]));
+        remainingPlayers = remainingPlayers
+          .filter((p) => present.has(p.id))
+          .map((p) => present.get(p.id));
+      }
       renderLobby();
+      refreshInGameCards();
       break;
     case "settings_updated":
       timerSeconds = data.timer_seconds;
@@ -735,6 +880,83 @@ function handleMessage(data) {
       }
       break;
   }
+}
+
+function refreshInGameCards() {
+  if (!document.getElementById("screen-hints").hidden) {
+    renderPlayerCards(hintsPlayerCards, remainingPlayers, { mode: "hints", allowReactions: true });
+  }
+  if (!document.getElementById("screen-voting").hidden) {
+    renderPlayerCards(votingPlayerCards, remainingPlayers, { mode: "voting", allowReactions: true });
+  }
+}
+
+function handleReconnected(data) {
+  // Restore identity and settings exactly as the welcome path would.
+  myId = data.player_id;
+  hostId = data.host_id;
+  players = data.players;
+  timerSeconds = data.timer_seconds;
+  difficulty = data.difficulty;
+  giveImposterHint = data.give_imposter_hint;
+  numImposters = data.num_imposters;
+  imposterMode = data.imposter_mode;
+  lastChanceGuess = data.last_chance_guess;
+  if (data.reconnect_token) saveSession(myRoomCode, data.reconnect_token);
+
+  if (reconnectResolver) {
+    reconnectResolver();
+    reconnectResolver = null;
+  }
+
+  if (data.room_state === "lobby") {
+    renderLobby();
+    showScreen("screen-lobby");
+    return;
+  }
+
+  // Mid-game: rebuild the role, roster and this round's hints, then land on
+  // whichever screen the room is actually on.
+  myRole = data.your_role;
+  myCharacter = data.character;
+  myAnimeTitle = data.anime_title || null;
+  myDecoyMode = data.decoy_mode === true;
+  myTeammates = data.teammates || [];
+  roundNumber = data.round_number;
+  maxRounds = data.max_rounds;
+  remainingPlayers = data.remaining_players || [];
+  currentTurnPlayerId = data.current_turn_player_id || null;
+
+  hintsByPlayerId = {};
+  for (const h of data.hints || []) hintsByPlayerId[h.player_id] = h.hint;
+
+  const statusText = `Round ${roundNumber} of ${maxRounds} · ${remainingPlayers.length} players remain`
+    + (data.eliminated ? " · spectating" : "");
+  gameStatusBar.textContent = statusText;
+  gameStatusBarVoting.textContent = statusText;
+  roleBanner.textContent = roleBannerText();
+
+  if (data.room_state === "voting") {
+    enterVotingScreen(data.hints || [], timerSeconds);
+    return;
+  }
+  if (data.room_state === "guessing") {
+    enterGuessScreen({
+      guesser_id: data.guesser_id,
+      guesser_name: (players.find((p) => p.id === data.guesser_id) || {}).name || "Someone",
+      seconds: null,
+    });
+    return;
+  }
+
+  // hints / starting / reveal all resume on the hint screen; the next
+  // turn_started or round_reveal broadcast will correct it within seconds.
+  renderPlayerCards(hintsPlayerCards, remainingPlayers, { mode: "hints", allowReactions: true });
+  const myTurn = currentTurnPlayerId === myId;
+  hintInput.disabled = !myTurn;
+  hintSubmitBtn.disabled = !myTurn;
+  turnHeading.textContent = myTurn ? "Your turn!" : "Back in the game";
+  showScreen("screen-hints");
 }
 
 function renderLobby() {

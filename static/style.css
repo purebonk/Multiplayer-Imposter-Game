@@ -261,6 +261,49 @@ form input { flex: 1; min-width: 0; }
   filter: grayscale(0.7);
 }
 
+/* Seat held while someone reconnects. Uses the existing gold accent and a
+   gentle pulse so it reads as "hang on" rather than an error state. */
+.player-card.is-reconnecting {
+  border-color: var(--gold);
+  border-style: dashed;
+  background: #fffaf0;
+  animation: reconnect-pulse 1.6s ease-in-out infinite;
+}
+
+.player-card.is-reconnecting .player-avatar,
+.player-card.is-reconnecting .player-avatar-emoji {
+  filter: grayscale(0.6);
+  opacity: 0.7;
+}
+
+.player-status.is-reconnecting-text {
+  color: #b8860b;
+  font-weight: 700;
+}
+
+@keyframes reconnect-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.72; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-card.is-reconnecting { animation: none; }
+}
+
+.leave-btn {
+  align-self: center;
+  font-size: 0.9rem;
+  padding: 0.45rem 1rem;
+  color: var(--ink-soft);
+  border-color: var(--border);
+}
+
+.leave-btn:hover:not(:disabled) {
+  color: var(--berry);
+  border-color: var(--berry);
+  background: transparent;
+}
+
 .player-avatar {
   width: 60px;
   height: 60px;

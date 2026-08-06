@@ -1,5 +1,6 @@
 import asyncio
 import random
+import secrets
 import string
 import time
 from dataclasses import dataclass, field
@@ -57,6 +58,8 @@ def player_summary(player: "Player") -> dict:
         "avatar_name": avatar["name"],
         "avatar_emoji": avatar["emoji"],
         "avatar_image": avatar["image"],
+        # Drives the "Reconnecting…" card state. Never includes the token.
+        "connected": player.connected,
     }
 
 
@@ -78,6 +81,13 @@ class Player:
     websocket: WebSocket
     session_id: str
     avatar_id: str = field(default_factory=random_avatar_id)
+
+    # Reconnection. A dropped player keeps their seat for a grace window, so
+    # a refresh doesn't cost them the game. The token is the proof of
+    # identity -- server-side only, never guessable, and a client cannot
+    # claim someone else's seat without it.
+    connected: bool = True
+    reconnect_token: str = field(default_factory=lambda: secrets.token_urlsafe(24))
 
     # Reaction rate-limit state. Lives on Player (not a module-level dict)
     # so it's cleaned up automatically when the player disconnects and the
@@ -106,6 +116,10 @@ class Room:
 
     character_name: Optional[str] = None
     anime_title: Optional[str] = None
+    # The same-series decoy handed to imposters in "similar" mode. Stored so
+    # a reconnecting imposter is given back the identical decoy rather than a
+    # different one, which would be an obvious tell.
+    decoy_name: Optional[str] = None
     # Fixed once per GAME at start_game/new_round, not per round -- an
     # elimination-style game keeps the same imposters across every round
     # until someone wins. Full player summaries (name + avatar) are snapshotted
@@ -138,8 +152,26 @@ class Room:
     pending_reveal: Optional[dict] = None
     guess_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
 
+    # player_id -> pending "remove them for good" task. Kept separate from
+    # the game timers because it has a different lifecycle: cancel_timers()
+    # runs between rounds, and a reconnect window must survive that.
+    grace_tasks: dict = field(default_factory=dict, repr=False, compare=False)
+
     def touch(self) -> None:
         self.last_activity = time.monotonic()
+
+    def cancel_grace(self, player_id: str) -> None:
+        task = self.grace_tasks.pop(player_id, None)
+        if task is not None:
+            task.cancel()
+
+    def cancel_all_grace(self) -> None:
+        for task in self.grace_tasks.values():
+            task.cancel()
+        self.grace_tasks.clear()
+
+    def connected_players(self) -> list:
+        return [p for p in self.players.values() if p.connected]
 
     def player_summaries(self) -> list[dict]:
         return [player_summary(p) for p in self.players.values()]
@@ -163,6 +195,10 @@ class Room:
         # comes after them in iteration order silently never gets this
         # message at all, even though they're still connected.
         for player in list(self.players.values()):
+            # Players inside their reconnect grace window keep their seat but
+            # have a dead socket -- skip rather than raise.
+            if not player.connected:
+                continue
             try:
                 await player.websocket.send_json(message)
             except Exception:
@@ -170,8 +206,12 @@ class Room:
 
     async def send_to(self, player_id: str, message: dict) -> None:
         player = self.players.get(player_id)
-        if player is not None:
+        if player is None or not player.connected:
+            return
+        try:
             await player.websocket.send_json(message)
+        except Exception:
+            pass
 
     def cancel_timers(self) -> None:
         if self.turn_task is not None:
@@ -201,6 +241,7 @@ class Room:
         self.reset_round_state()
         self.character_name = None
         self.anime_title = None
+        self.decoy_name = None
         self.imposter_ids = set()
         self.imposter_profiles = {}
         self.eliminated_ids = set()
@@ -237,9 +278,11 @@ class RoomManager:
     def remove_room(self, code: str) -> None:
         room = self._rooms.pop(code, None)
         # Timers hold a reference to the room and would otherwise fire against
-        # a room nobody can reach any more.
+        # a room nobody can reach any more. Grace tasks too -- they'd try to
+        # finalise a departure from a room that no longer exists.
         if room is not None:
             room.cancel_timers()
+            room.cancel_all_grace()
 
     def room_count(self) -> int:
         return len(self._rooms)

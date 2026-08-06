@@ -56,6 +56,14 @@ PORT = _int("PORT", 8000)
 # WebSocket carries real per-connection buffers, so the player ceiling
 # matters more than the room ceiling.
 
+# How long a dropped player keeps their seat before the normal cleanup runs.
+# A page refresh reconnects in ~1-3s and a mobile blip or tab restore in
+# ~10-15s, so 25s covers real drops comfortably. Kept under the common 30s
+# turn timer so a genuinely-gone player can't hold a slot longer than the
+# round they were in, and short enough that a frozen-looking card doesn't
+# make the others think the game has broken.
+RECONNECT_GRACE_SECONDS = _int("RECONNECT_GRACE_SECONDS", 25)
+
 MAX_ROOMS = _int("MAX_ROOMS", 300)
 MAX_PLAYERS_PER_ROOM = _int("MAX_PLAYERS_PER_ROOM", 20)
 

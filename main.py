@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import secrets
 import uuid
 from contextlib import asynccontextmanager
 
@@ -15,7 +16,15 @@ import game
 import limits
 import reactions
 from avatar_options import AVATAR_OPTIONS
-from rooms import AVATAR_IDS, Player, RoomCapacityError, RoomState, random_avatar_id, rooms
+from rooms import (
+    AVATAR_IDS,
+    Player,
+    RoomCapacityError,
+    RoomState,
+    player_summary,
+    random_avatar_id,
+    rooms,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -87,6 +96,85 @@ def _require(window: limits.SlidingWindow, request: Request) -> None:
             detail=RATE_MESSAGE,
             headers={"Retry-After": str(window.retry_after(ip))},
         )
+
+
+async def _finalize_departure(room, room_code: str, player_id: str) -> None:
+    """Remove a player for good and run the existing cleanup.
+
+    This is the Phase 2.8/3.0 logic verbatim, just relocated so the three
+    paths that need it -- grace-period expiry, an intentional Leave, and a
+    room teardown -- all share one implementation instead of drifting apart.
+    Nothing here is weakened; it's the same removal, turn-order adjustment,
+    host reassignment, and win-condition recheck, only now it can be delayed.
+    """
+    player = room.players.pop(player_id, None)
+    if player is None:
+        return
+    room.cancel_grace(player_id)
+    rooms.release_session(player.session_id)
+
+    if room.players:
+        if room.host_id == player_id:
+            room.host_id = next(iter(room.players))
+        await room.broadcast(
+            {
+                "type": "player_left",
+                "player": player.name,
+                "players": room.player_summaries(),
+                "host_id": room.host_id,
+            }
+        )
+        await game.handle_disconnect(room, player_id)
+    else:
+        rooms.remove_room(room_code)
+        logger.info("room_closed active_rooms=%d", rooms.room_count())
+
+
+async def _grace_expiry(room, room_code: str, player_id: str) -> None:
+    try:
+        await asyncio.sleep(config.RECONNECT_GRACE_SECONDS)
+    except asyncio.CancelledError:
+        return  # they reconnected, or the room went away
+    room.grace_tasks.pop(player_id, None)
+    player = room.players.get(player_id)
+    if player is None or player.connected:
+        return  # already resolved by another path
+    logger.info("reconnect_grace_expired")
+    await _finalize_departure(room, room_code, player_id)
+
+
+async def _begin_grace_period(room, room_code: str, player_id: str) -> None:
+    """Hold the seat briefly so a refresh or network blip doesn't cost it.
+
+    Deliberately does NOT pause any game timer: a turn or vote clock keeps
+    running, and the existing timeout handling covers "no submission". The
+    grace window is only about identity, not about stopping the game.
+    """
+    player = room.players.get(player_id)
+    if player is None:
+        return
+    player.connected = False
+
+    await room.broadcast(
+        {
+            "type": "player_status",
+            "player_id": player_id,
+            "connected": False,
+            "players": room.player_summaries(),
+            "host_id": room.host_id,
+        }
+    )
+
+    # With no turn timer configured, nothing would ever advance past a
+    # dropped player's turn -- the round would hang until the grace window
+    # ended. Nudge the turn along; every other case is already covered by
+    # the existing per-turn timeout.
+    await game.skip_turn_if_stalled(room, player_id)
+
+    room.cancel_grace(player_id)
+    room.grace_tasks[player_id] = asyncio.create_task(
+        _grace_expiry(room, room_code, player_id)
+    )
 
 
 @app.get("/")
@@ -162,6 +250,7 @@ async def websocket_endpoint(
     name: str = "Player",
     session_id: str | None = None,
     avatar_id: str | None = None,
+    reconnect_token: str | None = None,
 ):
     ip = limits.client_ip(websocket)
 
@@ -190,6 +279,26 @@ async def websocket_endpoint(
     # the browser (uvicorn rejects the handshake with a plain HTTP 403), so
     # rejections have to happen as a real message over an established socket.
     await websocket.accept()
+
+    # --- reconnect ---------------------------------------------------------
+    # Checked before the "game already started" and duplicate-session gates,
+    # because reclaiming a seat mid-game must bypass both. The token is the
+    # only thing that authorises it: a client cannot name a player_id and be
+    # believed. Compared with compare_digest so a wrong token can't be
+    # narrowed down by timing.
+    if reconnect_token and room is not None:
+        claimed = next(
+            (
+                p for p in room.players.values()
+                if secrets.compare_digest(p.reconnect_token, reconnect_token)
+            ),
+            None,
+        )
+        if claimed is not None:
+            await _resume_session(websocket, room, room_code, claimed, ip)
+            return
+        # Stale/invalid token: fall through and let the normal join rules
+        # decide, so the client gets a clear reason rather than a silent hang.
 
     if room is None:
         # The only brute-force surface in the app: guessing 4-character room
@@ -251,12 +360,10 @@ async def websocket_endpoint(
             "player_id": player_id,
             "host_id": room.host_id,
             "players": room.player_summaries(),
-            "timer_seconds": room.timer_seconds,
-            "difficulty": room.difficulty,
-            "give_imposter_hint": room.give_imposter_hint,
-            "num_imposters": room.num_imposters,
-            "imposter_mode": room.imposter_mode,
-            "last_chance_guess": room.last_chance_guess,
+            # Private to this player: proof of identity for reclaiming this
+            # exact seat after a refresh. Never broadcast.
+            "reconnect_token": room.players[player_id].reconnect_token,
+            **_settings_snapshot(room),
         },
     )
     await room.broadcast(
@@ -271,6 +378,88 @@ async def websocket_endpoint(
     # over-ambitious one still too high), so keep the lobby setting honest.
     await game.clamp_imposter_count(room)
 
+    await _run_session(websocket, room, room_code, player_id, ip)
+
+
+def _settings_snapshot(room) -> dict:
+    return {
+        "timer_seconds": room.timer_seconds,
+        "difficulty": room.difficulty,
+        "give_imposter_hint": room.give_imposter_hint,
+        "num_imposters": room.num_imposters,
+        "imposter_mode": room.imposter_mode,
+        "last_chance_guess": room.last_chance_guess,
+    }
+
+
+async def _resume_session(websocket: WebSocket, room, room_code: str, player, ip: str) -> None:
+    """Reattach a reconnecting client to its existing Player object.
+
+    The seat, role, imposter status and elimination state are all untouched --
+    only the socket is swapped -- so the player genuinely resumes rather than
+    being re-created.
+    """
+    room.cancel_grace(player.id)
+    player.websocket = websocket
+    player.connected = True
+    room.touch()
+
+    snapshot = {
+        "type": "reconnected",
+        "player_id": player.id,
+        "host_id": room.host_id,
+        "players": room.player_summaries(),
+        "reconnect_token": player.reconnect_token,
+        "room_state": room.state.value,
+        "round_number": room.round_number,
+        "max_rounds": room.max_rounds,
+        "eliminated": player.id in room.eliminated_ids,
+        **_settings_snapshot(room),
+    }
+
+    if room.state != RoomState.LOBBY:
+        remaining = room.remaining_ids()
+        is_imposter = player.id in room.imposter_ids
+        snapshot.update(
+            {
+                "your_role": "imposter" if is_imposter else "crewmate",
+                "remaining_players": [player_summary(room.players[pid]) for pid in remaining],
+                "remaining_count": len(remaining),
+                "hints": [{"player_id": pid, **data} for pid, data in room.hints.items()],
+                "current_turn_player_id": room.current_turn_player_id(),
+                "guesser_id": room.guesser_id,
+            }
+        )
+        # Same secrecy rule as game_started: an imposter never receives the
+        # real character, only their decoy (if the mode grants one).
+        if is_imposter:
+            snapshot["character"] = room.decoy_name if room.imposter_mode == "similar" else None
+            snapshot["decoy_mode"] = room.imposter_mode == "similar" and bool(room.decoy_name)
+            snapshot["teammates"] = [
+                room.imposter_profiles[other]["name"]
+                for other in room.imposter_ids
+                if other != player.id
+            ]
+        else:
+            snapshot["character"] = room.character_name
+            snapshot["anime_title"] = room.anime_title
+
+    await room.send_to(player.id, snapshot)
+    await room.broadcast(
+        {
+            "type": "player_status",
+            "player_id": player.id,
+            "connected": True,
+            "players": room.player_summaries(),
+            "host_id": room.host_id,
+        }
+    )
+    logger.info("player_reconnected room_state=%s", room.state.value)
+
+    await _run_session(websocket, room, room_code, player.id, ip)
+
+
+async def _run_session(websocket: WebSocket, room, room_code: str, player_id: str, ip: str) -> None:
     limits.add_connection(ip)
     bucket = limits.TokenBucket(config.WS_BURST, config.WS_REFILL_PER_SECOND)
     flood_strikes = 0
@@ -341,6 +530,14 @@ async def websocket_endpoint(
                 await reactions.send_reaction(
                     room, player_id, message.get("kind", ""), message.get("value", "")
                 )
+            elif msg_type == "leave_room":
+                # Deliberate exit: skip the grace window entirely and run the
+                # normal cleanup now. Breaking out means the finally block
+                # sees the player already gone and won't start a grace timer.
+                logger.info("player_left_intentionally")
+                await _finalize_departure(room, room_code, player_id)
+                await websocket.close()
+                break
             else:
                 # Unknown or missing type: refuse explicitly rather than
                 # silently ignoring, so a broken client can tell.
@@ -365,20 +562,7 @@ async def websocket_endpoint(
         # room.players with nothing ever cleaning it up: a ghost that never
         # resolves, not just a slow one. `finally` runs no matter which
         # exception (if any) ends this coroutine.
-        if player_id in room.players:
-            del room.players[player_id]
-            rooms.release_session(session_id)
-            if room.players:
-                if room.host_id == player_id:
-                    room.host_id = next(iter(room.players))
-                await room.broadcast(
-                    {
-                        "type": "player_left",
-                        "player": name,
-                        "players": room.player_summaries(),
-                        "host_id": room.host_id,
-                    }
-                )
-                await game.handle_disconnect(room, player_id)
-            else:
-                rooms.remove_room(room_code)
+        # An intentional leave has already finalised; a drop starts the
+        # reconnect grace window instead of removing the seat immediately.
+        if player_id in room.players and room.players[player_id].connected:
+            await _begin_grace_period(room, room_code, player_id)

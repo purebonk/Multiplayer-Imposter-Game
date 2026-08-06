@@ -149,6 +149,7 @@ async def _begin_game(room: Room, character_result: dict) -> None:
     room.reset_game_state()
     room.character_name = character_result["character"]
     room.anime_title = character_result["anime_title"]
+    room.decoy_name = character_result.get("decoy")
 
     # Recompute from room.players (not a snapshot taken before the fetch)
     # so anyone who disconnected during the API call can't become imposter.
@@ -516,6 +517,24 @@ def _check_win_condition(room: Room) -> "tuple[bool, str | None]":
     if len(remaining_imposters) >= len(remaining_crew):
         return True, "imposters"
     return False, None
+
+
+async def skip_turn_if_stalled(room: Room, player_id: str) -> None:
+    """Advance past a dropped player's turn when no clock would do it.
+
+    With a turn timer configured, `_turn_timeout` already records the
+    placeholder hint and moves on, so a disconnect needs no special handling.
+    With the timer set to "No limit" there is nothing to fire, and the round
+    would sit on an absent player until their grace window expired. Only that
+    gap is handled here -- the timed path is left exactly as it was.
+    """
+    if room.state != RoomState.HINTS or room.timer_seconds is not None:
+        return
+    if room.current_turn_player_id() != player_id:
+        return
+    await _record_hint(room, player_id, NO_HINT_PLACEHOLDER)
+    room.turn_index += 1
+    await _start_turn(room)
 
 
 async def handle_disconnect(room: Room, player_id: str) -> None:

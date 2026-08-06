@@ -1,0 +1,32 @@
+# Keeps the build context small and stops local-only or secret material from
+# being baked into the image. Anything listed here is never even sent to the
+# Docker daemon, so it cannot end up in a layer.
+
+# Local virtualenv -- the image installs its own dependencies, and copying a
+# macOS venv into a Linux image would be broken as well as huge.
+.venv/
+venv/
+
+# Version control history.
+.git/
+.gitignore
+
+# Local environment overrides. .env.example stays (it's documentation), but a
+# real .env must never be baked into an image that might get pushed anywhere.
+.env
+.env.local
+
+# Python bytecode / caches.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# OS and editor cruft.
+.DS_Store
+.vscode/
+.idea/
+
+# Docker's own files -- no reason to ship them inside the image.
+Dockerfile
+.dockerignore
