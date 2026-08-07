@@ -7,6 +7,7 @@ const avatarPicker = document.getElementById("avatar-picker");
 const avatarNameLabel = document.getElementById("avatar-name-label");
 
 const homePlayerName = document.getElementById("home-player-name");
+const changeNameBtn = document.getElementById("change-name-btn");
 const createBtn = document.getElementById("create-btn");
 const joinForm = document.getElementById("join-form");
 const joinBtn = document.getElementById("join-btn");
@@ -22,6 +23,16 @@ const settingsHostControls = document.getElementById("settings-host-controls");
 const settingsReadonly = document.getElementById("settings-readonly");
 const settingsWaiting = document.getElementById("settings-waiting");
 const settingsWaitingText = document.getElementById("settings-waiting-text");
+const animeToggle = document.getElementById("anime-toggle");
+const animeSummary = document.getElementById("anime-summary");
+const animeChevron = document.getElementById("anime-chevron");
+const animePanel = document.getElementById("anime-panel");
+const animeSearch = document.getElementById("anime-search");
+const animeAllBtn = document.getElementById("anime-all-btn");
+const animeNoneBtn = document.getElementById("anime-none-btn");
+const animeCounts = document.getElementById("anime-counts");
+const animeWarning = document.getElementById("anime-warning");
+const animeList = document.getElementById("anime-list");
 const timerSelect = document.getElementById("timer-select");
 const difficultySelect = document.getElementById("difficulty-select");
 const imposterCountSelect = document.getElementById("imposter-count-select");
@@ -199,6 +210,8 @@ let myVoteTarget = null;
 let guessOptions = [];
 let selectedGuess = null;
 // Suppresses the "connection lost" alert when the player chose to leave.
+// Joined mid-game: holds a seat but sits out the current round.
+let amSpectator = false;
 let leavingDeliberately = false;
 // Resolved by the `reconnected` message so attemptReconnect() knows it worked.
 let reconnectResolver = null;
@@ -262,6 +275,26 @@ async function loadAvatarRoster() {
   renderAvatarPicker();
 }
 
+/* Before this there was no way back to the name screen once a name was set --
+   not even for a typo -- short of clearing site data. Deliberately separate
+   from "Leave room": this only exists in the pre-room state.
+
+   Clears the remembered NAME but keeps the avatar. They are two independent
+   choices made on the same screen, and wiping the avatar would punish someone
+   who only wanted to fix a spelling. The name screen still shows the picker,
+   so changing it there stays one click away. The stored name is dropped at
+   click time so abandoning the edit and closing the tab doesn't quietly
+   restore the name they were trying to get rid of; the input keeps it
+   pre-filled and selected so correcting a typo is still fast. */
+changeNameBtn.addEventListener("click", () => {
+  storageRemove(STORAGE_NAME);
+  nameError.textContent = "";
+  nameInput.value = myName;
+  showScreen("screen-name");
+  nameInput.focus();
+  nameInput.select();
+});
+
 function restoreRememberedName() {
   const remembered = storageGet(STORAGE_NAME);
   if (remembered) nameInput.value = remembered;
@@ -269,6 +302,9 @@ function restoreRememberedName() {
 
 function renderAvatarPicker() {
   avatarPicker.innerHTML = "";
+  // Keeps the picker at exactly two rows for any roster size, so adding
+  // avatars later never silently reflows it into a third row.
+  avatarPicker.style.setProperty("--avatar-cols", Math.ceil(avatarRoster.length / 2) || 5);
   for (const entry of avatarRoster) {
     const btn = document.createElement("button");
     btn.type = "button"; // must not submit the name form
@@ -385,6 +421,7 @@ async function boot() {
   suppressAutofill();
   await loadAvatarRoster();
   loadReactionOptions();
+  loadAnimeCatalog();
   restoreRememberedName();
 
   // Try to reclaim a seat before showing any screen, so a refresh lands the
@@ -599,6 +636,9 @@ function statusFor(player, opts) {
   if (opts.mode === "lobby" || opts.mode === "reveal") {
     return { text: player.avatar_name || "", className: "player-status" };
   }
+  if (player.spectator) {
+    return { text: "Watching this round", className: "player-status is-watching" };
+  }
   const hint = hintsByPlayerId[player.id];
   if (hint) return { text: `“${hint}”`, className: "player-status has-hint" };
   if (player.id === currentTurnPlayerId) {
@@ -613,6 +653,9 @@ function updateCard(entry, player, opts) {
   // Host matters in the lobby (they hold the settings + start button); once
   // the game is running it's noise, so it's dropped from in-game cards.
   if (player.id === hostId && opts.mode === "lobby") tags.push("host");
+  // Mid-game joiners are visibly not in this round, so nobody wonders why
+  // they never get a turn or why their vote is missing.
+  if (player.spectator) tags.push("watching");
   entry.nameEl.textContent = tags.length ? `${player.name} (${tags.join(", ")})` : player.name;
 
   const status = statusFor(player, opts);
@@ -624,6 +667,7 @@ function updateCard(entry, player, opts) {
   // profiles snapshotted at game start), so only treat an explicit false
   // as disconnected.
   entry.el.classList.toggle("is-reconnecting", player.connected === false);
+  entry.el.classList.toggle("is-spectator", player.spectator === true);
   entry.el.classList.toggle(
     "is-active",
     opts.mode !== "lobby" && player.id === currentTurnPlayerId && !hintsByPlayerId[player.id]
@@ -843,7 +887,12 @@ function handleMessage(data) {
       numImposters = data.num_imposters;
       imposterMode = data.imposter_mode;
       lastChanceGuess = data.last_chance_guess;
+      applyPoolSettings(data);
       if (data.reconnect_token) saveSession(myRoomCode, data.reconnect_token);
+      if (data.spectator) {
+        enterSpectatorMode(data);
+        break;
+      }
       renderLobby();
       showScreen("screen-lobby");
       break;
@@ -875,6 +924,7 @@ function handleMessage(data) {
       numImposters = data.num_imposters;
       imposterMode = data.imposter_mode;
       lastChanceGuess = data.last_chance_guess;
+      applyPoolSettings(data);
       renderLobby();
       flashSettingsChanged();
       break;
@@ -934,12 +984,22 @@ function handleMessage(data) {
   }
 }
 
+/* The in-game card grid shows spectators alongside the players in play, but
+   `remainingPlayers` deliberately does not contain them -- that list drives
+   vote buttons, the eliminated check and every count, and a spectator must
+   stay out of all of it. So they are re-attached here, for display only. */
+function inGameRoster() {
+  const inPlay = new Set(remainingPlayers.map((p) => p.id));
+  const watching = players.filter((p) => p.spectator && !inPlay.has(p.id));
+  return remainingPlayers.concat(watching);
+}
+
 function refreshInGameCards() {
   if (!document.getElementById("screen-hints").hidden) {
-    renderPlayerCards(hintsPlayerCards, remainingPlayers, { mode: "hints", allowReactions: true });
+    renderPlayerCards(hintsPlayerCards, inGameRoster(), { mode: "hints", allowReactions: true });
   }
   if (!document.getElementById("screen-voting").hidden) {
-    renderPlayerCards(votingPlayerCards, remainingPlayers, { mode: "voting", allowReactions: true });
+    renderPlayerCards(votingPlayerCards, inGameRoster(), { mode: "voting", allowReactions: true });
   }
 }
 
@@ -960,6 +1020,14 @@ function handleReconnected(data) {
     reconnectResolver();
     reconnectResolver = null;
   }
+
+  applyPoolSettings(data);
+
+  if (data.spectator) {
+    enterSpectatorMode(data);
+    return;
+  }
+  amSpectator = false;
 
   if (data.room_state === "lobby") {
     renderLobby();
@@ -1003,11 +1071,68 @@ function handleReconnected(data) {
 
   // hints / starting / reveal all resume on the hint screen; the next
   // turn_started or round_reveal broadcast will correct it within seconds.
-  renderPlayerCards(hintsPlayerCards, remainingPlayers, { mode: "hints", allowReactions: true });
+  renderPlayerCards(hintsPlayerCards, inGameRoster(), { mode: "hints", allowReactions: true });
   const myTurn = currentTurnPlayerId === myId;
   hintInput.disabled = !myTurn;
   hintSubmitBtn.disabled = !myTurn;
   turnHeading.textContent = myTurn ? "Your turn!" : "Back in the game";
+  showScreen("screen-hints");
+}
+
+function applyPoolSettings(data) {
+  if (Array.isArray(data.selected_anime)) selectedAnime = data.selected_anime;
+  renderAnimePicker();
+  renderPoolCounts(data.pool_counts);
+}
+
+/* ------------------------------ spectators -------------------------------
+   Someone who arrives mid-game holds a real seat but sits out the round.
+   They see the board and the hints and nothing else: no character, no anime
+   title, no imposter identities. They are not on either side this round, and
+   a table on the same voice call would have the game spoiled by a watcher who
+   knows the answer. The next game promotes them automatically.
+--------------------------------------------------------------------------- */
+
+function enterSpectatorMode(data) {
+  amSpectator = true;
+  myRole = null;
+  myCharacter = null;
+  myAnimeTitle = null;
+  myHint = null;
+  myTeammates = [];
+  myDecoyMode = false;
+
+  roundNumber = data.round_number || 0;
+  maxRounds = data.max_rounds || 0;
+  remainingPlayers = data.remaining_players || [];
+  currentTurnPlayerId = data.current_turn_player_id || null;
+  hintsByPlayerId = {};
+  for (const h of data.hints || []) hintsByPlayerId[h.player_id] = h.hint;
+
+  const statusText =
+    `Round ${roundNumber} of ${maxRounds} · ${remainingPlayers.length} players remain · watching`;
+  gameStatusBar.textContent = statusText;
+  gameStatusBarVoting.textContent = statusText;
+  roleBanner.textContent =
+    "👀 You joined mid-game, so you're watching this round. You'll be dealt in on the next one.";
+
+  hintInput.disabled = true;
+  hintSubmitBtn.disabled = true;
+  turnHeading.textContent = "Watching";
+
+  if (data.room_state === "voting") {
+    enterVotingScreen(data.hints || [], timerSeconds);
+    return;
+  }
+  if (data.room_state === "guessing") {
+    enterGuessScreen({
+      guesser_id: data.guesser_id,
+      guesser_name: data.guesser_name || "Someone",
+      seconds: null,
+    });
+    return;
+  }
+  renderPlayerCards(hintsPlayerCards, inGameRoster(), { mode: "hints", allowReactions: true });
   showScreen("screen-hints");
 }
 
@@ -1022,7 +1147,9 @@ function handleReturnedToLobby(data) {
   numImposters = data.num_imposters;
   imposterMode = data.imposter_mode;
   lastChanceGuess = data.last_chance_guess;
+  applyPoolSettings(data);
 
+  amSpectator = false;
   myRole = null;
   myCharacter = null;
   myAnimeTitle = null;
@@ -1073,11 +1200,153 @@ function renderLobby() {
   }
 
   startGameBtn.hidden = !isHost;
-  startGameBtn.disabled = players.length < MIN_PLAYERS;
+  // poolUnplayable as well as the headcount: renderLobby runs after
+  // applyPoolSettings on every settings broadcast, so leaving it out here
+  // would silently re-enable a Start button the server is going to refuse.
+  startGameBtn.disabled = players.length < MIN_PLAYERS || poolUnplayable;
   hostHint.textContent =
     isHost && players.length < MIN_PLAYERS
       ? `Need at least ${MIN_PLAYERS} players to start.`
       : "";
+}
+
+/* ---------------------------- anime pool picker ---------------------------
+   66 anime is far too many for a plain checkbox list, so this is a searchable
+   grid of toggle pills: scannable at a glance, one click per change, and the
+   search box makes finding a specific show instant.
+
+   Collapsed behind a summary line by default ("All 66 anime"), because the
+   default IS all -- customising is opt-in and never sits between the host and
+   pressing Start. An empty selection means "all", which is also what the
+   server treats it as, so there is no state where the pool is empty.
+--------------------------------------------------------------------------- */
+
+let animeCatalog = [];
+let selectedAnime = [];   // empty == all
+let animeFilter = "";
+// True when the chosen anime have no characters in the chosen tier.
+let poolUnplayable = false;
+
+async function loadAnimeCatalog() {
+  try {
+    const res = await fetch("/api/anime");
+    if (!res.ok) return;
+    animeCatalog = (await res.json()).anime || [];
+  } catch (err) {
+    // The picker is optional polish; failing to load it must never stop a
+    // host starting a game with the default full pool.
+    animeCatalog = [];
+  }
+  renderAnimePicker();
+}
+
+function renderAnimePicker() {
+  const chosen = new Set(selectedAnime);
+  const usingAll = chosen.size === 0;
+  animeSummary.textContent = usingAll
+    ? `All ${animeCatalog.length} anime`
+    : `${chosen.size} of ${animeCatalog.length} selected`;
+
+  const query = animeFilter.trim().toLowerCase();
+  animeList.innerHTML = "";
+  let shown = 0;
+  for (const anime of animeCatalog) {
+    if (query && !anime.title.toLowerCase().includes(query)) continue;
+    shown += 1;
+    const pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = "anime-pill";
+    // With nothing selected every anime is in play, so showing them all as
+    // active is the honest reading of the state rather than a blank grid.
+    pill.classList.toggle("is-on", usingAll || chosen.has(anime.title));
+    // Only an explicit pick gets the strong fill; see the CSS note.
+    pill.classList.toggle("is-chosen", !usingAll && chosen.has(anime.title));
+    pill.textContent = anime.title;
+    pill.title = `${anime.total} characters · easy ${anime.tiers.easy} · medium ${anime.tiers.medium} · hard ${anime.tiers.hard}`;
+    pill.addEventListener("click", () => toggleAnime(anime.title));
+    animeList.appendChild(pill);
+  }
+  if (!shown) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No anime match that search.";
+    animeList.appendChild(empty);
+  }
+}
+
+function toggleAnime(title) {
+  const chosen = new Set(selectedAnime);
+  if (chosen.size === 0) {
+    // First click out of "all": start from everything, minus the one clicked.
+    for (const anime of animeCatalog) chosen.add(anime.title);
+  }
+  if (chosen.has(title)) chosen.delete(title);
+  else chosen.add(title);
+
+  if (chosen.size === 0) {
+    // Zero anime is not a state the game can run in. Rather than let the host
+    // create it and be refused later, deselecting the last one folds back to
+    // "all" -- which is what an empty selection means everywhere else.
+    selectedAnime = [];
+  } else if (chosen.size === animeCatalog.length) {
+    selectedAnime = [];   // everything selected IS "all"
+  } else {
+    selectedAnime = animeCatalog.map((a) => a.title).filter((t) => chosen.has(t));
+  }
+  renderAnimePicker();
+  sendSettingsUpdate();
+}
+
+animeToggle.addEventListener("click", () => {
+  const opening = animePanel.hidden;
+  animePanel.hidden = !opening;
+  animeChevron.textContent = opening ? "▴" : "▾";
+  if (opening) animeSearch.focus();
+});
+
+animeSearch.addEventListener("input", () => {
+  animeFilter = animeSearch.value;
+  renderAnimePicker();
+});
+
+animeAllBtn.addEventListener("click", () => {
+  selectedAnime = [];
+  renderAnimePicker();
+  sendSettingsUpdate();
+});
+
+animeNoneBtn.addEventListener("click", () => {
+  // "Clear" resets to the full pool rather than to nothing, for the same
+  // reason as above: an empty pool is not a runnable game.
+  selectedAnime = [];
+  animeSearch.value = "";
+  animeFilter = "";
+  renderAnimePicker();
+  sendSettingsUpdate();
+});
+
+/* Live per-tier counts for the current selection. This is what makes the
+   thin-selection edge case visible BEFORE the host presses Start: pick three
+   shows, set difficulty to hard, and the count for hard can be zero. The
+   server refuses that combination too, but a number in the lobby is a much
+   better way to find out than an error after clicking. */
+function renderPoolCounts(counts) {
+  if (!counts) return;
+  const label = { easy: "Easy", medium: "Medium", hard: "Hard" };
+  animeCounts.textContent = ["easy", "medium", "hard"]
+    .map((tier) => `${label[tier]} ${counts[tier]}`)
+    .join(" · ");
+
+  const available = counts[difficulty] || 0;
+  animeWarning.hidden = available > 0;
+  if (!available) {
+    animeWarning.textContent =
+      `No ${difficulty} characters in this selection — pick more anime or change the difficulty.`;
+  }
+  // Starting would be refused server-side anyway; disabling it here means the
+  // host sees why rather than discovering it by being rejected.
+  poolUnplayable = available === 0;
+  startGameBtn.disabled = players.length < MIN_PLAYERS || poolUnplayable;
 }
 
 const SETTINGS_FLASH_MS = 1600;
@@ -1111,6 +1380,7 @@ function sendSettingsUpdate() {
       num_imposters: parseInt(imposterCountSelect.value, 10),
       imposter_mode: imposterModeSelect.value,
       last_chance_guess: lastChanceCheckbox.checked,
+      selected_anime: selectedAnime,
     })
   );
 }
@@ -1157,11 +1427,16 @@ function roleBannerText() {
 }
 
 function amEliminated() {
-  return !remainingPlayers.some((p) => p.id === myId);
+  // A spectator is absent from remainingPlayers too, but for a different
+  // reason, and the two states read very differently to a player.
+  return !amSpectator && !remainingPlayers.some((p) => p.id === myId);
 }
 
 function handleRoundStarted(data) {
   startingLoading.hidden = true;
+  // A round_started only ever follows _begin_game, which promotes every
+  // spectator, so arriving here means this client is a real player again.
+  amSpectator = false;
   nextRoundLoading.hidden = true;
   newRoundLoading.hidden = true;
 
@@ -1189,7 +1464,7 @@ function handleRoundStarted(data) {
   gameStatusBarVoting.textContent = statusText;
 
   roleBanner.textContent = roleBannerText();
-  renderPlayerCards(hintsPlayerCards, remainingPlayers, { mode: "hints", allowReactions: true });
+  renderPlayerCards(hintsPlayerCards, inGameRoster(), { mode: "hints", allowReactions: true });
 
   showScreen("screen-hints");
 }
@@ -1206,7 +1481,7 @@ function handleTurnStarted(data) {
   hintSubmitBtn.disabled = !isMyTurn;
   if (isMyTurn) hintInput.focus();
 
-  renderPlayerCards(hintsPlayerCards, remainingPlayers, { mode: "hints", allowReactions: true });
+  renderPlayerCards(hintsPlayerCards, inGameRoster(), { mode: "hints", allowReactions: true });
   startTurnCountdown(data.timer_seconds);
 }
 
@@ -1264,7 +1539,7 @@ function handleHintGiven(data) {
       avatar_emoji: player ? player.avatar_emoji : "🎭",
     });
   }
-  renderPlayerCards(hintsPlayerCards, remainingPlayers, { mode: "hints", allowReactions: true });
+  renderPlayerCards(hintsPlayerCards, inGameRoster(), { mode: "hints", allowReactions: true });
   stageHintReveal(data);
 }
 
@@ -1476,14 +1751,17 @@ function enterVotingScreen(hints, votingTimerSeconds) {
   currentTurnPlayerId = null;
   for (const h of hints) hintsByPlayerId[h.player_id] = h.hint;
 
-  renderPlayerCards(votingPlayerCards, remainingPlayers, { mode: "voting", allowReactions: true });
+  renderPlayerCards(votingPlayerCards, inGameRoster(), { mode: "voting", allowReactions: true });
   renderPreviousRounds();
 
   const eliminated = amEliminated();
-  spectatorNote.hidden = !eliminated;
+  spectatorNote.hidden = !eliminated && !amSpectator;
+  spectatorNote.textContent = amSpectator
+    ? "You joined mid-game — you can watch this round, but you can't vote."
+    : "You've been ejected — you can watch, but you can't vote.";
   voteList.innerHTML = "";
   myVoteTarget = null;
-  if (!eliminated) {
+  if (!eliminated && !amSpectator) {
     // The server is what actually blocks a self-vote or a vote for someone
     // already ejected (game.py submit_vote) — this is just not offering
     // buttons that would always get rejected.
@@ -1498,8 +1776,8 @@ function enterVotingScreen(hints, votingTimerSeconds) {
       voteList.appendChild(li);
     }
   }
-  skipVoteBtn.hidden = eliminated;
-  skipVoteNote.hidden = eliminated;
+  skipVoteBtn.hidden = eliminated || amSpectator;
+  skipVoteNote.hidden = eliminated || amSpectator;
   markChosenVote();
   voteProgress.textContent = "";
 

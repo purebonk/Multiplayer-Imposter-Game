@@ -226,6 +226,15 @@ async def list_reaction_options(request: Request):
     }
 
 
+@app.get("/api/anime")
+async def list_anime(request: Request):
+    _require(limits.api_calls, request)
+    # Same reasoning as /api/avatars: characters.py is the single source of
+    # truth for what exists, so the host's picker is built from it rather than
+    # a duplicated client list that could offer titles the server rejects.
+    return {"anime": characters.anime_catalog()}
+
+
 @app.post("/api/rooms")
 async def create_room(request: Request):
     # Two windows: a short one so a burst can't spike the instance, and a
@@ -314,10 +323,11 @@ async def websocket_endpoint(
         await websocket.send_json({"type": "error", "message": "Room not found."})
         await websocket.close()
         return
-    if room.state != RoomState.LOBBY:
-        await websocket.send_json({"type": "error", "message": "That room already started a game."})
-        await websocket.close()
-        return
+    # Arriving mid-game used to be a flat refusal ("That room already started a
+    # game"), which meant a friend who was 30 seconds late had to sit out the
+    # whole thing. They now take a seat as a spectator instead and are promoted
+    # to a full player by the next game.
+    joining_mid_game = room.state != RoomState.LOBBY
     if len(room.players) >= config.MAX_PLAYERS_PER_ROOM:
         await websocket.send_json({"type": "error", "message": "That room is full."})
         await websocket.close()
@@ -350,23 +360,25 @@ async def websocket_endpoint(
     if not room.players:
         room.host_id = player_id
     room.players[player_id] = Player(
-        id=player_id, name=name, websocket=websocket, session_id=session_id, avatar_id=avatar_id
+        id=player_id, name=name, websocket=websocket, session_id=session_id,
+        avatar_id=avatar_id, spectator=joining_mid_game,
     )
     rooms.register_session(session_id, room_code)
 
-    await room.send_to(
-        player_id,
-        {
-            "type": "welcome",
-            "player_id": player_id,
-            "host_id": room.host_id,
-            "players": room.player_summaries(),
-            # Private to this player: proof of identity for reclaiming this
-            # exact seat after a refresh. Never broadcast.
-            "reconnect_token": room.players[player_id].reconnect_token,
-            **_settings_snapshot(room),
-        },
-    )
+    welcome = {
+        "type": "welcome",
+        "player_id": player_id,
+        "host_id": room.host_id,
+        "players": room.player_summaries(),
+        # Private to this player: proof of identity for reclaiming this
+        # exact seat after a refresh. Never broadcast.
+        "reconnect_token": room.players[player_id].reconnect_token,
+        "spectator": joining_mid_game,
+        **_settings_snapshot(room),
+    }
+    if joining_mid_game:
+        welcome.update(_spectator_snapshot(room))
+    await room.send_to(player_id, welcome)
     await room.broadcast(
         {
             "type": "player_joined",
@@ -380,6 +392,33 @@ async def websocket_endpoint(
     await game.clamp_imposter_count(room)
 
     await _run_session(websocket, room, room_code, player_id, ip)
+
+
+def _spectator_snapshot(room) -> dict:
+    """The live round, as much of it as a spectator may see.
+
+    Deliberately no character, no anime title and no imposter identities. A
+    spectator is not on either side this round, and handing them the answer
+    would let them tip off (or accidentally out) the imposter to a table that
+    is usually sitting in the same room or voice call. They get exactly what
+    the hints already tell everyone, and deduce along like anyone else.
+    """
+    remaining = room.remaining_ids()
+    return {
+        "room_state": room.state.value,
+        "round_number": room.round_number,
+        "max_rounds": room.max_rounds,
+        "remaining_players": [player_summary(room.players[pid]) for pid in remaining],
+        "remaining_count": len(remaining),
+        "hints": [{"player_id": pid, **data} for pid, data in room.hints.items()],
+        "current_turn_player_id": room.current_turn_player_id(),
+        "guesser_id": room.guesser_id,
+        "guesser_name": (
+            room.players[room.guesser_id].name
+            if room.guesser_id and room.guesser_id in room.players
+            else None
+        ),
+    }
 
 
 def _settings_snapshot(room) -> dict:
@@ -416,10 +455,16 @@ async def _resume_session(websocket: WebSocket, room, room_code: str, player, ip
         "round_number": room.round_number,
         "max_rounds": room.max_rounds,
         "eliminated": player.id in room.eliminated_ids,
+        "spectator": player.spectator,
         **_settings_snapshot(room),
     }
 
-    if room.state != RoomState.LOBBY:
+    if player.spectator:
+        # A spectator who refreshes must come back a spectator. Falling through
+        # to the branch below would classify them as a crewmate -- because they
+        # are not in imposter_ids -- and hand them the character outright.
+        snapshot.update(_spectator_snapshot(room))
+    elif room.state != RoomState.LOBBY:
         remaining = room.remaining_ids()
         is_imposter = player.id in room.imposter_ids
         snapshot.update(
@@ -525,6 +570,7 @@ async def _run_session(websocket: WebSocket, room, room_code: str, player_id: st
                     message.get("num_imposters"),
                     message.get("imposter_mode"),
                     message.get("last_chance_guess"),
+                    message.get("selected_anime"),
                 )
             elif msg_type == "submit_guess":
                 await game.submit_guess(

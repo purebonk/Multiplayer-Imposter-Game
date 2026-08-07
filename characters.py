@@ -54,7 +54,7 @@ def _filter_by_difficulty(anime: dict, difficulty: str) -> list[dict]:
     return [c for c in anime["characters"] if difficulty_of(anime, c) == difficulty]
 
 
-def _anime_with_tier(difficulty: str) -> list[dict]:
+def _anime_with_tier(difficulty: str, titles=None) -> list[dict]:
     """Anime that actually contain a character at this tier.
 
     Selection is still anime-first then character (unchanged mechanism), but
@@ -62,8 +62,10 @@ def _anime_with_tier(difficulty: str) -> list[dict]:
     nobody in the requested tier silently fell back to its ENTIRE cast, which
     quietly leaked easy characters into hard mode. With three tiers that
     fallback would have fired constantly and blurred the tiers into noise.
+
+    `titles` narrows this to the host's chosen anime; None means the full pool.
     """
-    return [a for a in ANIME_POOL if _filter_by_difficulty(a, difficulty)]
+    return [a for a in _selected(titles) if _filter_by_difficulty(a, difficulty)]
 
 
 def _pick_decoy(anime: dict, chosen: dict, difficulty: str) -> "str | None":
@@ -80,6 +82,59 @@ def _pick_decoy(anime: dict, chosen: dict, difficulty: str) -> "str | None":
 
     anyone_else = [c for c in anime["characters"] if c["name"] != chosen["name"]]
     return random.choice(anyone_else)["name"] if anyone_else else None
+
+
+ALL_TITLES = tuple(sorted(a["title"] for a in ANIME_POOL))
+
+
+def _selected(titles) -> list[dict]:
+    """The anime a room is drawing from. None/empty means the whole pool."""
+    if not titles:
+        return ANIME_POOL
+    wanted = set(titles)
+    return [a for a in ANIME_POOL if a["title"] in wanted] or ANIME_POOL
+
+
+def anime_catalog() -> list[dict]:
+    """What the host's picker is built from. Character counts per tier are
+    included so the UI can warn before a thin selection becomes a problem,
+    rather than after the host presses Start."""
+    catalog = []
+    for anime in sorted(ANIME_POOL, key=lambda a: a["title"]):
+        catalog.append({
+            "title": anime["title"],
+            "genres": anime["genres"],
+            "total": len(anime["characters"]),
+            "tiers": {t: len(_filter_by_difficulty(anime, t)) for t in DIFFICULTY_TIERS},
+        })
+    return catalog
+
+
+def pool_counts(titles=None) -> dict:
+    """How many characters a given anime selection offers in each tier.
+
+    This is what makes the thin-selection edge case visible: picking three
+    shows and setting difficulty to hard can leave literally nothing to draw,
+    and the host should see that as a number before starting, not as an error.
+    """
+    chosen = _selected(titles)
+    return {
+        tier: sum(len(_filter_by_difficulty(a, tier)) for a in chosen)
+        for tier in DIFFICULTY_TIERS
+    }
+
+
+def valid_titles(titles) -> list[str]:
+    """Filter a client-supplied list down to titles that actually exist."""
+    if not isinstance(titles, list):
+        return []
+    known = {a["title"] for a in ANIME_POOL}
+    seen, out = set(), []
+    for title in titles:
+        if isinstance(title, str) and title in known and title not in seen:
+            seen.add(title)
+            out.append(title)
+    return out
 
 
 @functools.lru_cache(maxsize=4)
@@ -122,7 +177,7 @@ def resolve_pool_entry(difficulty: str, entry_id) -> "str | None":
     return None
 
 
-async def get_character(difficulty: str = "easy") -> dict:
+async def get_character(difficulty: str = "easy", titles=None) -> dict:
     """Picks a random character from the static, hand-curated pool
     (character_pool_data.py). This is the ONLY character source used during
     actual gameplay -- no network call, so starting a round is instant and
@@ -134,14 +189,16 @@ async def get_character(difficulty: str = "easy") -> dict:
     a character from it at the requested tier. Only the candidate anime are
     now pre-filtered, so the tier is honoured rather than silently widened.
 
-    `decoy` is the alternate same-series character handed to imposters in
+    `titles` restricts the draw to the host's chosen anime; None is the whole
+    pool. `decoy` is the alternate same-series character handed to imposters in
     "similar" mode; it is always computed but only ever sent to a client
     when that mode is on."""
-    pool = _anime_with_tier(difficulty)
+    pool = _anime_with_tier(difficulty, titles)
     if not pool:
-        # Only reachable if the data file itself is broken; a clean failure
-        # here surfaces as "couldn't fetch a character, try again" rather
-        # than an IndexError killing the socket.
+        # Reachable two ways: broken data, or a host whose chosen anime have
+        # nobody in the chosen tier. game.start_game refuses that combination
+        # up front with a message naming the real problem, so this stays a
+        # clean failure rather than an IndexError killing the socket.
         raise RuntimeError(f"no characters available at difficulty {difficulty!r}")
     anime = random.choice(pool)
     chosen = random.choice(_filter_by_difficulty(anime, difficulty))

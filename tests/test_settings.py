@@ -15,6 +15,9 @@ DEFAULTS = dict(
     num_imposters=1,
     imposter_mode="blind",
     last_chance_guess=True,
+    # None means "leave the anime selection alone", matching the wire format:
+    # a client that never touches the picker simply omits the field.
+    selected_anime=None,
 )
 
 
@@ -29,6 +32,7 @@ async def update(room, player_id, **overrides):
         values["num_imposters"],
         values["imposter_mode"],
         values["last_chance_guess"],
+        values["selected_anime"],
     )
 
 

@@ -68,6 +68,8 @@ def player_summary(player: "Player") -> dict:
         "avatar_image": avatar["image"],
         # Drives the "Reconnecting…" card state. Never includes the token.
         "connected": player.connected,
+        # Drives the "watching" tag; also tells a client it may not act yet.
+        "spectator": player.spectator,
     }
 
 
@@ -97,6 +99,13 @@ class Player:
     connected: bool = True
     reconnect_token: str = field(default_factory=lambda: secrets.token_urlsafe(24))
 
+    # Joined while a game was already running. They hold a real seat and watch
+    # the round, but are excluded from turn order, voting, role assignment and
+    # every win-condition count until the next game promotes them. Cleared in
+    # game._begin_game, which is the only place it is safe to do -- see the
+    # note there for why promotion cannot happen mid-game.
+    spectator: bool = False
+
     # Reaction rate-limit state. Lives on Player (not a module-level dict)
     # so it's cleaned up automatically when the player disconnects and the
     # Player object is dropped -- no separate bookkeeping to leak.
@@ -121,6 +130,9 @@ class Room:
     num_imposters: int = 1
     imposter_mode: str = "blind"
     last_chance_guess: bool = True
+    # Titles the character pool may draw from. Empty means "all anime", which
+    # is the default so customising is opt-in and never blocks starting a game.
+    selected_anime: list[str] = field(default_factory=list)
 
     character_name: Optional[str] = None
     anime_title: Optional[str] = None
@@ -195,12 +207,29 @@ class Room:
         return [player_summary(p) for p in self.players.values()]
 
     def remaining_ids(self) -> list[str]:
-        """Currently-connected players who haven't been ejected this game.
+        """Players still in contention this game.
 
         A disconnect is already reflected here for free: main.py deletes a
         departed player from `players` immediately, so this list shrinks
-        without needing to separately track "left" vs "ejected"."""
-        return [pid for pid in self.players if pid not in self.eliminated_ids]
+        without needing to separately track "left" vs "ejected".
+
+        Spectators are excluded, and that single exclusion is what keeps a
+        mid-game joiner from disturbing anything: turn order, vote tallies,
+        the "has everyone voted" check and both win conditions are all derived
+        from this list, so none of them can see a spectator at all.
+        """
+        return [
+            pid for pid, player in self.players.items()
+            if pid not in self.eliminated_ids and not player.spectator
+        ]
+
+    def spectator_ids(self) -> list[str]:
+        return [pid for pid, player in self.players.items() if player.spectator]
+
+    def playing_count(self) -> int:
+        """Seats that count toward starting a game -- spectators included,
+        because _begin_game promotes them before anything is assigned."""
+        return len(self.players)
 
     def current_turn_player_id(self) -> Optional[str]:
         if 0 <= self.turn_index < len(self.turn_order):

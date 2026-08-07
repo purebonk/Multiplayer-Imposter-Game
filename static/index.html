@@ -49,7 +49,12 @@
     <section id="screen-home" class="screen" hidden>
       <div class="card">
         <h2>Start playing</h2>
-        <p class="muted">Playing as <strong id="home-player-name"></strong></p>
+        <p class="muted">
+          Playing as <strong id="home-player-name"></strong>
+          <!-- Pre-room only. Distinct from "Leave room", which exits an
+               active game; this just goes back to the name screen. -->
+          <button id="change-name-btn" type="button" class="linklike">Change name</button>
+        </p>
         <button id="create-btn">Create a Room</button>
       </div>
 
@@ -131,6 +136,35 @@
             <input type="checkbox" id="last-chance-checkbox" checked />
             Ejected imposter can guess to win
           </label>
+
+          <!-- Anime pool. Collapsed by default and defaulting to "all", so
+               this is opt-in customisation and never a step between the host
+               and starting a game. -->
+          <div class="anime-picker">
+            <button id="anime-toggle" type="button" class="anime-toggle">
+              <span class="anime-toggle-label">Anime pool</span>
+              <span id="anime-summary" class="anime-summary">All 66 anime</span>
+              <span id="anime-chevron" class="anime-chevron" aria-hidden="true">▾</span>
+            </button>
+
+            <div id="anime-panel" class="anime-panel" hidden>
+              <div class="anime-controls">
+                <input
+                  id="anime-search"
+                  type="search"
+                  placeholder="Search anime…"
+                  data-no-autofill
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <button id="anime-all-btn" type="button" class="ghost tiny">All</button>
+                <button id="anime-none-btn" type="button" class="ghost tiny">Clear</button>
+              </div>
+              <p id="anime-counts" class="anime-counts"></p>
+              <p id="anime-warning" class="error anime-warning" hidden></p>
+              <div id="anime-list" class="anime-list"></div>
+            </div>
+          </div>
         </div>
         <p id="settings-readonly" class="muted" hidden></p>
         <!-- Non-hosts otherwise just see frozen text with no sign anything is

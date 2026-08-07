@@ -4,7 +4,13 @@ import math
 import random
 
 import config
-from characters import get_character, pool_entries, resolve_pool_entry
+from characters import (
+    get_character,
+    pool_counts,
+    pool_entries,
+    resolve_pool_entry,
+    valid_titles,
+)
 from limits import clean_text
 from rooms import (
     DIFFICULTY_OPTIONS,
@@ -51,6 +57,10 @@ async def return_to_lobby(room: Room, player_id: str) -> None:
 
     room.reset_game_state()
     room.state = RoomState.LOBBY
+    # Back in the lobby there is no game to be a spectator of -- anyone who
+    # arrived mid-game is simply a player now, same as everyone else.
+    for player in room.players.values():
+        player.spectator = False
     # A game may have ended with fewer players than it started with, which can
     # leave the imposter count too high for the lobby it's returning to.
     valid = valid_imposter_counts(max(len(room.players), MIN_PLAYERS))
@@ -76,6 +86,7 @@ async def update_settings(
     num_imposters,
     imposter_mode,
     last_chance_guess,
+    selected_anime=None,
 ) -> None:
     if player_id != room.host_id:
         await room.send_to(player_id, {"type": "error", "message": "Only the host can change settings."})
@@ -101,6 +112,26 @@ async def update_settings(
         await room.send_to(player_id, {"type": "error", "message": "Invalid settings."})
         return
 
+    # Anime selection. Host-only by the check at the top of this function --
+    # the picker being hidden for non-hosts in the UI is not the control.
+    if selected_anime is not None:
+        if not isinstance(selected_anime, list):
+            await room.send_to(player_id, {"type": "error", "message": "Invalid settings."})
+            return
+        # Unknown titles are dropped rather than trusted, so a client cannot
+        # invent an anime and steer the pool somewhere that does not exist.
+        chosen = valid_titles(selected_anime)
+        # An empty list would leave nothing to draw from. Refused outright
+        # rather than silently reinterpreted as "all", because a host who
+        # cleared everything by accident should be told, not quietly overridden.
+        if selected_anime and not chosen:
+            await room.send_to(
+                player_id,
+                {"type": "error", "message": "Pick at least one anime for the character pool."},
+            )
+            return
+        room.selected_anime = chosen
+
     room.timer_seconds = timer_seconds
     room.difficulty = difficulty
     room.give_imposter_hint = give_imposter_hint
@@ -119,6 +150,10 @@ def _settings_payload(room: Room) -> dict:
         "num_imposters": room.num_imposters,
         "imposter_mode": room.imposter_mode,
         "last_chance_guess": room.last_chance_guess,
+        "selected_anime": list(room.selected_anime),
+        # Recomputed on every broadcast so the lobby always shows how much the
+        # current selection actually offers per tier.
+        "pool_counts": pool_counts(room.selected_anime),
     }
 
 
@@ -139,6 +174,34 @@ async def clamp_imposter_count(room: Room) -> None:
         await room.broadcast(_settings_payload(room))
 
 
+async def _pool_is_playable(room: Room, player_id: str) -> bool:
+    """Refuse to start a game the chosen anime cannot actually supply.
+
+    The thin-selection edge case: pick three shows, set difficulty to hard, and
+    those three may have no hard-tier characters between them. Caught here with
+    a message naming the real problem, rather than letting get_character raise
+    and surfacing the generic "couldn't fetch a character, try again" -- which
+    would send the host looking for a network fault that does not exist. The
+    lobby also shows these counts live, so this is the backstop, not the
+    primary way a host finds out.
+    """
+    available = pool_counts(room.selected_anime)[room.difficulty]
+    if available:
+        return True
+    scope = "your chosen anime" if room.selected_anime else "the pool"
+    await room.send_to(
+        player_id,
+        {
+            "type": "error",
+            "message": (
+                f"No {room.difficulty} characters in {scope}. "
+                "Pick more anime or change the difficulty."
+            ),
+        },
+    )
+    return False
+
+
 async def start_game(room: Room, player_id: str) -> None:
     if player_id != room.host_id:
         await room.send_to(player_id, {"type": "error", "message": "Only the host can start the game."})
@@ -151,13 +214,15 @@ async def start_game(room: Room, player_id: str) -> None:
             player_id, {"type": "error", "message": f"Need at least {MIN_PLAYERS} players to start."}
         )
         return
+    if not await _pool_is_playable(room, player_id):
+        return
 
     # Flip state before the first await so a join or a second start_game
     # arriving while we're mid-fetch sees state != LOBBY and bails out.
     room.state = RoomState.STARTING
 
     try:
-        result = await get_character(room.difficulty)
+        result = await get_character(room.difficulty, room.selected_anime)
     except RuntimeError:
         room.state = RoomState.LOBBY
         await room.send_to(player_id, {"type": "error", "message": "Couldn't fetch a character, try again."})
@@ -181,11 +246,13 @@ async def new_round(room: Room, player_id: str) -> None:
             player_id, {"type": "error", "message": f"Need at least {MIN_PLAYERS} players to continue."}
         )
         return
+    if not await _pool_is_playable(room, player_id):
+        return
 
     room.state = RoomState.STARTING
 
     try:
-        result = await get_character(room.difficulty)
+        result = await get_character(room.difficulty, room.selected_anime)
     except RuntimeError:
         room.state = RoomState.REVEAL
         await room.send_to(player_id, {"type": "error", "message": "Couldn't fetch a character, try again."})
@@ -202,6 +269,18 @@ async def _begin_game(room: Room, character_result: dict) -> None:
     room.character_name = character_result["character"]
     room.anime_title = character_result["anime_title"]
     room.decoy_name = character_result.get("decoy")
+
+    # Spectators become real players here, and ONLY here.
+    #
+    # Promoting them at the next elimination round instead would not work: a
+    # crewmate is defined by knowing the character, and someone who watched the
+    # whole round cannot be handed it now without telling them what every hint
+    # so far was about. They would also change remaining_crew partway through,
+    # which is the denominator of the imposters-win check, and inflate the
+    # crew's numbers against a round cap fixed at the old headcount. A fresh
+    # game re-derives all of that from scratch, so it is the one clean seam.
+    for player in room.players.values():
+        player.spectator = False
 
     # Recompute from room.players (not a snapshot taken before the fetch)
     # so anyone who disconnected during the API call can't become imposter.
@@ -335,6 +414,11 @@ async def _turn_timeout(room: Room, player_id: str, seconds: int) -> None:
 async def submit_hint(room: Room, player_id: str, hint: str) -> None:
     if room.state != RoomState.HINTS or player_id not in room.players or player_id in room.eliminated_ids:
         return
+    # Belt and braces: a spectator is never in turn_order, so the turn check
+    # below already refuses them. Stated explicitly so the rule does not depend
+    # on a second list happening to be built correctly.
+    if room.players[player_id].spectator:
+        return
     if room.current_turn_player_id() != player_id:
         await room.send_to(player_id, {"type": "error", "message": "It's not your turn."})
         return
@@ -381,6 +465,8 @@ async def _voting_timeout(room: Room, seconds: int) -> None:
 
 async def submit_vote(room: Room, player_id: str, target_id: str) -> None:
     remaining = room.remaining_ids()
+    # Spectators are absent from `remaining`, so this same check refuses both
+    # voting AS one and voting FOR one.
     if room.state != RoomState.VOTING or player_id not in remaining:
         return
     # A skip is a real, validated vote -- not "no vote". It still occupies this

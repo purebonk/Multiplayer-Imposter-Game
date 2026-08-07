@@ -567,10 +567,21 @@ form input { flex: 1; min-width: 0; }
 
 /* ---------------------------- avatar picker ---------------------------- */
 
+/* Column count is set from the roster length by renderAvatarPicker (always
+   ceil(n / 2)), so the picker stays exactly two rows however many avatars
+   exist -- adding more later never reflows it into a third row. */
 #avatar-picker:not([hidden]) {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(var(--avatar-cols, 5), 1fr);
   gap: 0.4rem;
+}
+
+/* Below this, splitting a wide roster across two rows makes each avatar too
+   small to tap comfortably, so height wins over the two-row rule. */
+@media (max-width: 420px) {
+  #avatar-picker:not([hidden]) {
+    grid-template-columns: repeat(auto-fit, minmax(54px, 1fr));
+  }
 }
 
 .avatar-choice {
@@ -1185,4 +1196,165 @@ h1::after {
   h1::before,
   h1::after,
   .title-sparkle { animation: none; }
+}
+
+/* ------------------------------------------------------------------
+   Phase 3.16 — change name, spectators, anime pool picker.
+   ------------------------------------------------------------------ */
+
+/* --- inline "Change name" link ------------------------------------- */
+
+.linklike {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0 0 0 0.4rem;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--coral-deep);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.linklike:hover:not(:disabled) { filter: brightness(1.15); }
+.linklike:active:not(:disabled) { transform: none; }
+
+/* --- spectators ----------------------------------------------------- */
+
+/* Visibly out of play without looking broken or disconnected: muted, with a
+   soft dashed edge that reads as "not part of this round yet". */
+.player-card.is-spectator {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  background: #faf5ee;
+  opacity: 0.82;
+}
+
+.player-status.is-watching {
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+/* --- anime pool picker ---------------------------------------------- */
+
+.anime-picker {
+  border-top: 1px dashed var(--border);
+  padding-top: 0.75rem;
+  margin-top: 0.1rem;
+}
+
+.anime-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: 1.5px solid var(--border-strong);
+  box-shadow: none;
+  color: var(--ink);
+  font-size: 0.95rem;
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+}
+
+.anime-toggle:active:not(:disabled) { transform: translateY(1px); }
+
+.anime-toggle-label { font-weight: 600; }
+
+.anime-summary {
+  margin-left: auto;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  color: var(--coral-deep);
+  font-weight: 700;
+}
+
+.anime-chevron { color: var(--ink-soft); font-size: 0.8rem; }
+
+.anime-panel:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.6rem;
+  padding: 0.7rem;
+  background: var(--parchment);
+  border-radius: var(--radius-sm);
+}
+
+.anime-controls {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.anime-controls input { flex: 1; min-width: 0; font-size: 0.92rem; padding: 0.45rem 0.6rem; }
+
+button.tiny {
+  font-size: 0.8rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--card);
+}
+
+.anime-counts {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+
+.anime-warning:not([hidden]) {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+/* Pills rather than checkboxes: 66 rows of checkbox would be a wall, and a
+   wrapped grid of short labels is scannable at a glance and one click to
+   change. Scrolls inside its own box so the settings card keeps its shape. */
+.anime-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  max-height: 13rem;
+  overflow-y: auto;
+  padding: 0.15rem;
+}
+
+.anime-pill {
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.32rem 0.6rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--card);
+  color: var(--ink-soft);
+  box-shadow: none;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.anime-pill:hover { border-color: var(--coral); }
+
+/* Two "on" looks on purpose. The default is every anime selected, and 66
+   solid coral pills is a wall of orange that reads as an alert rather than a
+   resting state -- so the default gets a soft parchment fill, and full coral
+   is reserved for anime the host actually picked. */
+.anime-pill.is-on {
+  background: var(--parchment);
+  border-color: var(--border-strong);
+  color: var(--ink);
+}
+
+.anime-pill.is-chosen {
+  background: var(--coral);
+  border-color: var(--coral-deep);
+  color: #fff;
+}
+
+.anime-pill:active { transform: translateY(1px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .anime-pill { transition: none; }
 }
