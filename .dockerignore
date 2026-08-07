@@ -27,6 +27,12 @@ __pycache__/
 .vscode/
 .idea/
 
+# Tests never run in the production image, and requirements-dev.txt would
+# pull a test runner into it. Excluded so the image stays lean.
+tests/
+pytest.ini
+requirements-dev.txt
+
 # Docker's own files -- no reason to ship them inside the image.
 Dockerfile
 .dockerignore

@@ -1,0 +1,8 @@
+# Development / test dependencies. Deliberately NOT in requirements.txt:
+# the production image (and Render) should not install a test runner.
+#
+#   pip install -r requirements-dev.txt && pytest
+-r requirements.txt
+
+pytest==9.1.1
+pytest-asyncio==1.4.0

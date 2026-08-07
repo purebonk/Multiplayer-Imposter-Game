@@ -6,3 +6,6 @@ __pycache__/
 # Local environment overrides. .env.example is committed; .env is not.
 .env
 .env.local
+
+# Test runner caches. The tests themselves are committed; their scratch is not.
+.pytest_cache/
