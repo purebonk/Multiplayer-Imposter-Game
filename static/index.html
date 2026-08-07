@@ -19,13 +19,24 @@
 </head>
 <body>
   <main>
-    <h1>Anime Imposter</h1>
+    <h1>Anime Imposter<span class="title-sparkle" aria-hidden="true">✧</span></h1>
 
     <section id="screen-name" class="screen">
       <div class="card">
         <h2>Who's playing?</h2>
         <form id="name-form">
-          <input id="name-input" placeholder="Your name" maxlength="20" />
+          <!-- data-no-autofill: app.js randomises the name attribute per load
+               and sets a non-standard autocomplete token. Chrome ignores
+               autocomplete="off" on anything that looks like a name field. -->
+          <input
+            id="name-input"
+            placeholder="Your name"
+            maxlength="20"
+            data-no-autofill
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+          />
           <p class="avatar-caption">Pick your fighter</p>
           <div id="avatar-picker"></div>
           <p id="avatar-name-label" class="avatar-caption"></p>
@@ -45,7 +56,15 @@
       <div class="card">
         <h3>Join a friend</h3>
         <form id="join-form">
-          <input id="join-code-input" placeholder="Room code" maxlength="4" />
+          <input
+            id="join-code-input"
+            placeholder="Room code"
+            maxlength="4"
+            data-no-autofill
+            autocomplete="off"
+            autocapitalize="characters"
+            spellcheck="false"
+          />
           <button id="join-btn" type="submit">Join</button>
         </form>
         <p id="join-error" class="error"></p>
@@ -114,6 +133,13 @@
           </label>
         </div>
         <p id="settings-readonly" class="muted" hidden></p>
+        <!-- Non-hosts otherwise just see frozen text with no sign anything is
+             happening while the host decides. Inferred from lobby state, so it
+             costs no extra server signal. -->
+        <p id="settings-waiting" class="settings-waiting" hidden>
+          <span class="waiting-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span id="settings-waiting-text">Host is setting things up…</span>
+        </p>
       </div>
 
       <p id="host-hint" class="error"></p>
@@ -130,7 +156,14 @@
         <p id="turn-timer-display" class="timer-display"></p>
         <p id="role-banner" class="role-banner"></p>
         <form id="hint-form">
-          <input id="hint-input" placeholder="One-word hint" />
+          <input
+            id="hint-input"
+            placeholder="One-word hint"
+            data-no-autofill
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+          />
           <button id="hint-submit-btn" type="submit">Send</button>
         </form>
       </div>
@@ -183,7 +216,9 @@
             <input
               id="guess-input"
               placeholder="Search the character list…"
+              data-no-autofill
               autocomplete="off"
+              spellcheck="false"
               role="combobox"
               aria-expanded="false"
               aria-controls="guess-options"

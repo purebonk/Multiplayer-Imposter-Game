@@ -67,12 +67,9 @@ h1 {
   letter-spacing: 0.01em;
 }
 
-h1::after {
-  content: "🍜";
-  display: block;
-  font-size: 1.25rem;
-  margin-top: 0.2rem;
-}
+/* The ramen mark and the sparkles that flank it are defined together in the
+   decorative section at the end of this file, so the header's ornamentation
+   lives in one place. */
 
 h2, h3 {
   font-family: var(--font-display);
@@ -1022,4 +1019,170 @@ main li:last-child { border-bottom: none; }
   .hint-reveal.is-entering,
   .hint-reveal.is-static { animation: none; }
   .player-card.is-hint-landing { animation: none; }
+}
+
+/* ------------------------------------------------------------------
+   Phase 3.14 — lobby waiting indicator, decorative polish.
+   ------------------------------------------------------------------ */
+
+/* --- "host is setting things up" ----------------------------------- */
+
+.settings-waiting:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.15rem 0 0;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.waiting-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.waiting-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--coral);
+  opacity: 0.35;
+  animation: waiting-dot 1.25s ease-in-out infinite;
+}
+
+.waiting-dots i:nth-child(2) { animation-delay: 0.18s; }
+.waiting-dots i:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes waiting-dot {
+  0%, 60%, 100% { opacity: 0.25; transform: translateY(0); }
+  30%           { opacity: 1;    transform: translateY(-3px); }
+}
+
+/* A settings change is one word moving in a line of grey text, which is easy
+   to miss entirely -- so the line itself acknowledges the update. */
+#settings-readonly.just-changed {
+  color: var(--ink);
+  background: #fff4e2;
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.55rem;
+  margin: -0.4rem -0.55rem;
+  transition: background 0.35s ease, color 0.35s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .waiting-dots i { animation: none; opacity: 0.6; }
+  #settings-readonly.just-changed { transition: none; }
+}
+
+/* --- decorative: paper grain ---------------------------------------
+   Two very low-alpha dot layers on top of the existing warm gradients, so
+   large empty areas read as textured paper rather than flat colour. Pure
+   CSS gradients: no image request, no layout cost, and it never repaints
+   because the background is already fixed.                              */
+
+body {
+  background-image:
+    radial-gradient(circle at 12% 8%, rgba(244, 185, 66, 0.16), transparent 42%),
+    radial-gradient(circle at 88% 4%, rgba(239, 125, 87, 0.14), transparent 38%),
+    radial-gradient(rgba(122, 82, 48, 0.045) 1px, transparent 1px),
+    radial-gradient(rgba(122, 82, 48, 0.028) 1px, transparent 1px);
+  background-size: auto, auto, 22px 22px, 22px 22px;
+  background-position: 0 0, 0 0, 0 0, 11px 11px;
+}
+
+/* --- decorative: sparkles flanking the title ------------------------
+   Placed in the dead space either side of the heading, where nothing else
+   competes for attention. Kept to two, at low opacity, drifting slowly --
+   the intent is "someone cared about this page", not "look at me".      */
+
+h1 {
+  position: relative;
+}
+
+h1::before {
+  content: "✦";
+  position: absolute;
+  left: 8%;
+  top: 0.35em;
+  font-size: 0.42em;
+  color: var(--gold);
+  opacity: 0.65;
+  animation: twinkle 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+h1::after {
+  /* The existing ramen mark, now with a matching sparkle opposite the first
+     and a slow bob so the header has a little life without moving text. */
+  content: "🍜";
+  display: block;
+  font-size: 1.25rem;
+  margin-top: 0.2rem;
+  animation: steam-bob 5s ease-in-out infinite;
+}
+
+.title-sparkle {
+  position: absolute;
+  right: 8%;
+  top: 0.55em;
+  font-size: 0.38em;
+  color: var(--coral);
+  opacity: 0.5;
+  animation: twinkle 4.5s ease-in-out infinite 2.2s;
+  pointer-events: none;
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.2;  transform: scale(0.85) rotate(0deg); }
+  50%      { opacity: 0.75; transform: scale(1.1) rotate(12deg); }
+}
+
+/* The sparkles live in the dead space either side of the title. Narrow
+   screens have no dead space -- at 320px they land on top of the word
+   "Imposter" and read as a rendering fault rather than as decoration -- so
+   below this width they simply do not exist. */
+@media (max-width: 430px) {
+  h1::before,
+  .title-sparkle { display: none; }
+}
+
+@keyframes steam-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+
+/* --- decorative: warm top edge on cards -----------------------------
+   A 3px gradient hairline along the top of each card. Enough to make cards
+   feel deliberately made rather than default-bordered, without adding a
+   shape that competes with the content inside them.                     */
+
+/* Deliberately NOT `overflow: hidden` to clip this to the card's corners:
+   the guess-picker dropdown and the reaction picker are absolutely positioned
+   and must be free to overflow their card. The gradient fades to transparent
+   at both ends instead, so it never reaches the rounded corners anyway. */
+.card:not([hidden]) {
+  position: relative;
+}
+
+.card:not([hidden])::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(244, 185, 66, 0.55) 22%,
+    rgba(239, 125, 87, 0.55) 52%,
+    transparent 88%
+  );
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  h1::before,
+  h1::after,
+  .title-sparkle { animation: none; }
 }

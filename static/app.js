@@ -20,6 +20,8 @@ const previousRounds = document.getElementById("previous-rounds");
 const lobbyPlayerCards = document.getElementById("lobby-player-cards");
 const settingsHostControls = document.getElementById("settings-host-controls");
 const settingsReadonly = document.getElementById("settings-readonly");
+const settingsWaiting = document.getElementById("settings-waiting");
+const settingsWaitingText = document.getElementById("settings-waiting-text");
 const timerSelect = document.getElementById("timer-select");
 const difficultySelect = document.getElementById("difficulty-select");
 const imposterCountSelect = document.getElementById("imposter-count-select");
@@ -354,7 +356,33 @@ for (const id of ["leave-room-btn", "leave-room-btn-hints", "leave-room-btn-voti
 
 /* ------------------------------- boot ------------------------------- */
 
+/* Browser autofill on a party-game input is pure noise -- a dropdown of every
+   name you have ever typed, over the game.
+
+   `autocomplete="off"` alone does not do it. Chrome deliberately ignores it on
+   fields its heuristics read as personal details, and #name-input (id "name",
+   placeholder "Your name") is exactly that. What Chrome's saved-value dropdown
+   actually keys on is the field's name/id, so the fix is to give it a key it
+   has never seen: a fresh random `name` every page load means there is no
+   history to offer, and nothing worth saving accumulates either.
+
+   The non-standard autocomplete token is the second half. An unrecognised
+   value is treated as "off" by every engine, but unlike the literal "off" it
+   is not special-cased by the heuristics that override it.
+
+   data-lpignore / data-1p-ignore ask LastPass and 1Password to stay out too;
+   those inject their own overlays and honour nothing else. */
+function suppressAutofill() {
+  for (const input of document.querySelectorAll("[data-no-autofill]")) {
+    input.setAttribute("name", `f_${crypto.randomUUID()}`);
+    input.setAttribute("autocomplete", `nope-${crypto.randomUUID().slice(0, 8)}`);
+    input.setAttribute("data-lpignore", "true");
+    input.setAttribute("data-1p-ignore", "true");
+  }
+}
+
 async function boot() {
+  suppressAutofill();
   await loadAvatarRoster();
   loadReactionOptions();
   restoreRememberedName();
@@ -848,6 +876,7 @@ function handleMessage(data) {
       imposterMode = data.imposter_mode;
       lastChanceGuess = data.last_chance_guess;
       renderLobby();
+      flashSettingsChanged();
       break;
     case "game_started":
       handleGameStarted(data);
@@ -862,7 +891,8 @@ function handleMessage(data) {
       handleHintGiven(data);
       break;
     case "hints_revealed":
-      enterVotingScreen(data.hints, data.timer_seconds);
+      // Deferred if the final hint is still animating -- see queueVotingScreen.
+      queueVotingScreen(data.hints, data.timer_seconds);
       break;
     case "vote_progress":
       voteProgress.textContent = `${data.voted_count}/${data.total} votes cast`;
@@ -1016,6 +1046,9 @@ function renderLobby() {
   const isHost = myId === hostId;
   settingsHostControls.hidden = !isHost;
   settingsReadonly.hidden = isHost;
+  // Only meaningful before a game starts -- once it has, nobody is waiting on
+  // the host to configure anything.
+  settingsWaiting.hidden = isHost;
   if (isHost) {
     timerSelect.value = timerSeconds === null ? "none" : String(timerSeconds);
     difficultySelect.value = difficulty;
@@ -1045,6 +1078,24 @@ function renderLobby() {
     isHost && players.length < MIN_PLAYERS
       ? `Need at least ${MIN_PLAYERS} players to start.`
       : "";
+}
+
+const SETTINGS_FLASH_MS = 1600;
+let settingsFlashTimer = null;
+
+/* Confirms the host actually changed something, rather than leaving non-hosts
+   to spot a word shifting in a line of grey text. Deliberately not per
+   keystroke -- the server only broadcasts on a committed change, so this
+   fires exactly as often as something real happened. */
+function flashSettingsChanged() {
+  if (myId === hostId) return;
+  settingsReadonly.classList.add("just-changed");
+  settingsWaitingText.textContent = "Host just updated the settings";
+  clearTimeout(settingsFlashTimer);
+  settingsFlashTimer = setTimeout(() => {
+    settingsReadonly.classList.remove("just-changed");
+    settingsWaitingText.textContent = "Host is setting things up…";
+  }, SETTINGS_FLASH_MS);
 }
 
 function sendSettingsUpdate() {
@@ -1230,22 +1281,90 @@ const HINT_HOLD_MS = 1100;   // time centre-stage before flying home
 const HINT_FLIGHT_MS = 620;
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
+// Total on-screen life of one reveal, used to size the safety net below.
+const HINT_REVEAL_TOTAL_MS = HINT_HOLD_MS + HINT_FLIGHT_MS;
+// Safety net for the deferred voting transition: an IDLE timeout, restarted
+// every time a reveal starts, not a deadline for the whole queue. A queue of
+// several hints legitimately takes several times one reveal's length, so an
+// absolute ceiling would cut off exactly the backlog it was meant to protect.
+// What it actually guards is "a reveal wedged and stopped making progress",
+// which is the only way the screen could get stuck.
+const VOTING_DEFER_IDLE_MS = HINT_REVEAL_TOTAL_MS * 2;
+
 let hintRevealQueue = [];
 let hintRevealPlaying = false;
+// A `hints_revealed` that arrived while the last hint was still animating.
+let pendingVoting = null;
+let pendingVotingTimer = null;
 
 function clearHintStage() {
   hintRevealQueue = [];
   hintRevealPlaying = false;
   hintStage.innerHTML = "";
+  // Any screen change invalidates a deferred transition: whatever moved us
+  // (a reveal, a reconnect, leaving) has already decided where we are going.
+  cancelPendingVoting();
+}
+
+function cancelPendingVoting() {
+  pendingVoting = null;
+  if (pendingVotingTimer) {
+    clearTimeout(pendingVotingTimer);
+    pendingVotingTimer = null;
+  }
+}
+
+/* The last hint of a round used to be the one nobody got to read: the server
+   sends `hints_revealed` immediately after the final `hint_given`, and
+   switching screens tears the hint stage down. Reacting to hints is the point
+   of the game, so the transition waits for the animation instead.
+
+   Held client-side on purpose. The server has already moved the room into the
+   voting phase and started its clock; delaying that would be a change to round
+   logic, not to presentation. Only this client's screen waits, and the
+   countdown below is shortened by however long it waited so it stays honest
+   about the server's real deadline. */
+function queueVotingScreen(hints, votingTimerSeconds) {
+  if (!hintRevealPlaying && hintRevealQueue.length === 0) {
+    enterVotingScreen(hints, votingTimerSeconds);
+    return;
+  }
+  pendingVoting = { hints, votingTimerSeconds, deferredAt: Date.now() };
+  armVotingIdleTimeout();
+}
+
+function armVotingIdleTimeout() {
+  if (!pendingVoting) return;
+  clearTimeout(pendingVotingTimer);
+  pendingVotingTimer = setTimeout(flushPendingVoting, VOTING_DEFER_IDLE_MS);
+}
+
+function flushPendingVoting() {
+  if (!pendingVoting) return;
+  const { hints, votingTimerSeconds, deferredAt } = pendingVoting;
+  cancelPendingVoting();
+
+  // The server's clock has been running throughout the wait, so hand the
+  // countdown what is actually left rather than restarting it at full.
+  let seconds = votingTimerSeconds;
+  if (seconds !== null && seconds !== undefined) {
+    const waited = (Date.now() - deferredAt) / 1000;
+    seconds = Math.max(1, Math.round(seconds - waited));
+  }
+  enterVotingScreen(hints, seconds);
 }
 
 function stageHintReveal(data) {
   // A skipped turn isn't a moment worth interrupting anyone for.
   if (data.hint === "(no hint given)") return;
   hintRevealQueue.push(data);
-  // Fast timers can queue hints faster than they can play. Only the newest
-  // couple still matter; showing a backlog would run behind the live game.
-  if (hintRevealQueue.length > 2) hintRevealQueue = hintRevealQueue.slice(-2);
+  // A backlog cap, so a burst can never leave the reveals running minutes
+  // behind the live game. Raised from 2 now that the voting transition waits
+  // for this queue: dropping a hint would mean a word nobody ever saw. Turns
+  // are sequential and each needs reading plus typing, so exceeding this in
+  // real play would take several people submitting inside ~1.7s of each other.
+  // slice(-N) keeps the newest, so the final hint of a round is never dropped.
+  if (hintRevealQueue.length > 4) hintRevealQueue = hintRevealQueue.slice(-4);
   if (!hintRevealPlaying) playNextHintReveal();
 }
 
@@ -1253,9 +1372,13 @@ function playNextHintReveal() {
   const data = hintRevealQueue.shift();
   if (!data) {
     hintRevealPlaying = false;
+    // The queue just drained -- if voting was waiting on it, go now.
+    flushPendingVoting();
     return;
   }
   hintRevealPlaying = true;
+  // Progress was made, so the deferred-voting safety net starts over.
+  armVotingIdleTimeout();
 
   const player = remainingPlayers.find((p) => p.id === data.player_id);
   const el = buildHintRevealNode(data, player);
