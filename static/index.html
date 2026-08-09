@@ -286,7 +286,7 @@
       <div id="voting-panel" class="card">
         <h3>Cast your vote</h3>
         <ul id="vote-list"></ul>
-        <button id="skip-vote-btn" class="ghost skip-vote-btn">🤷 Skip vote</button>
+        <button id="skip-vote-btn" class="ghost skip-vote-btn"><span class="skip-emoji" aria-hidden="true">🤷</span><span class="vote-name">Skip vote</span><span id="skip-tally" class="vote-tally"></span></button>
         <p id="skip-vote-note" class="muted">If skipping ties or beats the top vote, nobody is ejected.</p>
         <p id="vote-progress" class="muted"></p>
         <p id="spectator-note" class="muted" hidden>You've been ejected — you can watch, but you can't vote.</p>
@@ -338,6 +338,11 @@
       <div id="reveal-roles" class="card" hidden>
         <h3 id="reveal-roles-heading">The imposter was…</h3>
         <div id="imposter-cards" class="player-grid"></div>
+      </div>
+
+      <div id="still-in-card" class="card" hidden>
+        <h3 id="still-in-heading"></h3>
+        <div id="still-in-cards" class="player-grid"></div>
       </div>
 
       <div id="reveal-character" class="card" hidden>

@@ -42,19 +42,21 @@ def test_an_empty_selection_counts_as_the_whole_pool():
 
 
 def test_counts_narrow_with_the_selection():
-    narrow = characters.pool_counts(["Naruto"])
+    # Spans reach values on purpose: a mega show alone has no hard tier at all
+    # now (its deep cuts are only medium), so one would not exercise all three.
+    narrow = characters.pool_counts(["Naruto", "Steins;Gate"])
     full = characters.pool_counts()
     for tier in characters.DIFFICULTY_TIERS:
-        assert 0 < narrow[tier] < full[tier]
+        assert 0 < narrow[tier] < full[tier], tier
 
 
 def test_a_thin_selection_can_legitimately_have_an_empty_tier():
-    """The edge case the whole guard exists for: Your Name has no medium-tier
-    characters at all, so a host who picks only it and sets Medium has nothing
-    to draw."""
+    """The edge case the whole guard exists for. Your Name is a mega film, so
+    even its minor characters top out at medium and it offers no hard tier --
+    a host who picks only it and sets Hard has nothing to draw."""
     counts = characters.pool_counts(["Your Name"])
-    assert counts["medium"] == 0
-    assert counts["easy"] > 0 and counts["hard"] > 0
+    assert counts["hard"] == 0
+    assert counts["easy"] > 0 and counts["medium"] > 0
 
 
 async def test_get_character_only_draws_from_the_selection():
@@ -65,8 +67,8 @@ async def test_get_character_only_draws_from_the_selection():
 
 async def test_get_character_respects_the_tier_within_a_selection():
     for _ in range(200):
-        result = await characters.get_character("hard", ["Naruto"])
-        assert result["anime_title"] == "Naruto"
+        result = await characters.get_character("hard", ["Steins;Gate"])
+        assert result["anime_title"] == "Steins;Gate"
         assert result["difficulty"] == "hard"
 
 
@@ -150,30 +152,30 @@ async def test_starting_is_refused_when_the_tier_is_empty_in_the_selection():
     character, try again" -- sending them looking for a network fault that
     does not exist."""
     room = make_room(4)
-    await update(room, "p0", difficulty="medium", selected_anime=["Your Name"])
+    await update(room, "p0", difficulty="hard", selected_anime=["Your Name"])
     before = len(ws(room).sent)
 
     await game.start_game(room, "p0")
 
     errors = ws(room).errors(before)
-    assert any("No medium characters in your chosen anime" in e for e in errors), errors
+    assert any("No hard characters in your chosen anime" in e for e in errors), errors
     assert room.state.value == "lobby", "the room must stay startable"
 
 
 async def test_widening_the_selection_makes_it_startable_again():
     room = make_room(4)
-    await update(room, "p0", difficulty="medium", selected_anime=["Your Name"])
-    await update(room, "p0", difficulty="medium", selected_anime=["Your Name", "Naruto"])
+    await update(room, "p0", difficulty="hard", selected_anime=["Your Name"])
+    await update(room, "p0", difficulty="hard", selected_anime=["Your Name", "Steins;Gate"])
 
     await game.start_game(room, "p0")
 
     assert room.state.value == "hints"
-    assert room.anime_title in ("Your Name", "Naruto")
+    assert room.anime_title == "Steins;Gate"   # the only one with a hard tier
 
 
 async def test_changing_difficulty_also_resolves_it():
     room = make_room(4)
-    await update(room, "p0", difficulty="medium", selected_anime=["Your Name"])
+    await update(room, "p0", difficulty="hard", selected_anime=["Your Name"])
     await update(room, "p0", difficulty="easy", selected_anime=["Your Name"])
 
     await game.start_game(room, "p0")

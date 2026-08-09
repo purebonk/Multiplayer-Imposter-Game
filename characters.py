@@ -10,8 +10,8 @@ from character_pool_data import ANIME_POOL
 #
 #              mega       popular    cult
 #   core       easy       easy       medium
-#   notable    medium     medium     hard
-#   deep       hard       hard       hard
+#   notable    easy       medium     hard
+#   deep       medium     hard       hard
 #
 # Reading the two edges of that grid is the whole argument for the redesign:
 #   - a core character of a mega show is easy even when MAL calls them
@@ -22,10 +22,16 @@ DIFFICULTY_MATRIX = {
     ("core", "mega"): "easy",
     ("core", "popular"): "easy",
     ("core", "cult"): "medium",
-    ("notable", "mega"): "medium",
+    # A recurring face in a show everyone has seen is genuinely easier than one
+    # in a show only anime watchers have. Nobara, Sasha, Shikamaru and Power's
+    # supporting cast are easy to a table of teenagers; Bocchi's bandmates or
+    # Overlord's floor guardians are not.
+    ("notable", "mega"): "easy",
     ("notable", "popular"): "medium",
     ("notable", "cult"): "hard",
-    ("deep", "mega"): "hard",
+    # Even a deep cut from a mega show has a real chance of landing, so it is a
+    # medium rather than a dead end.
+    ("deep", "mega"): "medium",
     ("deep", "popular"): "hard",
     ("deep", "cult"): "hard",
 }

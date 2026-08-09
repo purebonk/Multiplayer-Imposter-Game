@@ -233,6 +233,14 @@ form input { flex: 1; min-width: 0; }
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   gap: 0.8rem;
+  /* Headroom for reaction bubbles, which anchor above their card. Without it
+     a bubble on the top row escapes the grid and lands on whatever text sits
+     above -- during voting it covered the timer line.
+
+     Plain padding, no negative margin: pulling the grid up made its box
+     overlap the heading above it, which silently swallowed clicks on
+     whatever it covered. */
+  padding-top: 1.6rem;
 }
 
 .player-card {
@@ -752,8 +760,8 @@ form input { flex: 1; min-width: 0; }
 
 /* ---------------------------- round history ---------------------------- */
 
-#round-history,
-#previous-rounds {
+#round-history:not([hidden]),
+#previous-rounds:not([hidden]) {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
@@ -761,7 +769,7 @@ form input { flex: 1; min-width: 0; }
 
 /* Kept scrollable so a long game's history can't push the vote buttons
    off the bottom of the screen mid-vote. */
-#previous-rounds {
+#previous-rounds:not([hidden]) {
   max-height: 240px;
   overflow-y: auto;
 }
@@ -1245,7 +1253,7 @@ h1::after {
   margin-top: 0.1rem;
 }
 
-.anime-toggle {
+.anime-toggle:not([hidden]) {
   width: 100%;
   display: flex;
   align-items: center;
@@ -1312,7 +1320,7 @@ button.tiny {
 /* Pills rather than checkboxes: 66 rows of checkbox would be a wall, and a
    wrapped grid of short labels is scannable at a glance and one click to
    change. Scrolls inside its own box so the settings card keeps its shape. */
-.anime-list {
+.anime-list:not([hidden]) {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
@@ -1447,3 +1455,82 @@ button.tiny {
 /* "None selected" is a dead-end the host has to resolve, so it reads as a
    warning rather than as a neutral count. */
 .anime-summary.is-empty { color: var(--berry); }
+
+/* --- voting: avatar buttons + live tally (Phase 3.19) ---------------
+   A column of "Vote Bea" text buttons made you re-read names you had just
+   been matching to faces on the cards directly above. */
+
+#vote-list:not([hidden]) {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.vote-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.7rem;
+  text-align: left;
+}
+
+/* :not([hidden]) is load-bearing -- skipVoteBtn.hidden is toggled for ejected
+   players and spectators, and an unscoped `display: flex` beats the UA
+   stylesheet's [hidden] rule, so the button would stay on screen for people
+   who are not allowed to vote. This is the fifth time this exact trap has
+   appeared in this file. */
+.skip-vote-btn:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.45rem 0.7rem;
+}
+
+.vote-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.vote-avatar.fallback-emoji {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--parchment);
+  font-size: 1.1rem;
+}
+
+.skip-emoji { font-size: 1.35rem; width: 34px; text-align: center; flex-shrink: 0; }
+
+.vote-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Dots rather than a number: readable at a glance and it grows visibly, which
+   is what makes a vote landing feel like something happening. */
+.vote-tally {
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  color: var(--coral);
+  flex-shrink: 0;
+}
+
+.vote-tally.has-votes { color: var(--berry); }
+
+.vote-option.is-chosen,
+.skip-vote-btn.is-chosen {
+  background: var(--parchment);
+  border-color: var(--coral);
+  box-shadow: 0 0 0 2px rgba(239, 125, 87, 0.25);
+}

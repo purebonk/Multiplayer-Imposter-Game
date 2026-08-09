@@ -121,9 +121,16 @@ def test_recognizable_characters_land_in_the_easy_tier():
 
 
 def test_deep_cuts_land_in_the_hard_tier():
+    """Hard is now reserved for deep cuts of shows a casual table has NOT all
+    seen. A minor character in a mega show (Panda, Yotsuha) is only medium --
+    they still have a real chance of landing, so they are not a dead end."""
     hard = {name for _, name in characters.pool_entries("hard")}
-    for name in ("Yotsuha Miyamizu", "Erica Brown", "Panda"):
+    for name in ("Erica Brown", "Faris NyanNyan", "Aikuro Mikisugi"):
         assert name in hard, f"{name} should be a deep cut"
+
+    medium = {name for _, name in characters.pool_entries("medium")}
+    for name in ("Yotsuha Miyamizu", "Panda"):
+        assert name in medium, f"{name} is obscure but from a show everyone saw"
 
 
 def test_a_cult_shows_lead_is_not_easy():

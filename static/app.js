@@ -70,6 +70,7 @@ const votingTimerDisplay = document.getElementById("voting-timer-display");
 const votingPanel = document.getElementById("voting-panel");
 const voteList = document.getElementById("vote-list");
 const skipVoteBtn = document.getElementById("skip-vote-btn");
+const skipTally = document.getElementById("skip-tally");
 const skipVoteNote = document.getElementById("skip-vote-note");
 const voteProgress = document.getElementById("vote-progress");
 const spectatorNote = document.getElementById("spectator-note");
@@ -80,6 +81,9 @@ const outcomeTitle = document.getElementById("outcome-title");
 const outcomeSub = document.getElementById("outcome-sub");
 const revealRoles = document.getElementById("reveal-roles");
 const revealRolesHeading = document.getElementById("reveal-roles-heading");
+const stillInCard = document.getElementById("still-in-card");
+const stillInHeading = document.getElementById("still-in-heading");
+const stillInCards = document.getElementById("still-in-cards");
 const imposterCards = document.getElementById("imposter-cards");
 const revealCharacter = document.getElementById("reveal-character");
 const revealCharacterName = document.getElementById("reveal-character-name");
@@ -953,7 +957,7 @@ function handleMessage(data) {
       queueVotingScreen(data.hints, data.timer_seconds);
       break;
     case "vote_progress":
-      voteProgress.textContent = `${data.voted_count}/${data.total} votes cast`;
+      renderVoteProgress(data);
       break;
     case "guess_started":
       enterGuessScreen(data);
@@ -2002,9 +2006,20 @@ function enterVotingScreen(hints, votingTimerSeconds) {
     for (const p of remainingPlayers.filter((p) => p.id !== myId)) {
       const li = document.createElement("li");
       const btn = document.createElement("button");
-      btn.className = "ghost";
+      btn.className = "ghost vote-option";
       btn.dataset.voteTarget = p.id;
-      btn.textContent = `Vote ${p.name}`;
+      // Avatar + name, because every other list of players in the game is
+      // shown that way -- a column of text buttons made you re-read names you
+      // had just been matching to faces.
+      btn.appendChild(avatarNode(p, "vote-avatar"));
+      const label = document.createElement("span");
+      label.className = "vote-name";
+      label.textContent = p.name;
+      btn.appendChild(label);
+      const tally = document.createElement("span");
+      tally.className = "vote-tally";
+      tally.dataset.tallyFor = p.id;
+      btn.appendChild(tally);
       btn.addEventListener("click", () => castVote(p.id));
       li.appendChild(btn);
       voteList.appendChild(li);
@@ -2013,7 +2028,8 @@ function enterVotingScreen(hints, votingTimerSeconds) {
   skipVoteBtn.hidden = eliminated || amSpectator;
   skipVoteNote.hidden = eliminated || amSpectator;
   markChosenVote();
-  voteProgress.textContent = "";
+  // Clear last round's tally dots rather than leaving them on screen.
+  renderVoteProgress({ tally: {}, skips: 0, voted_count: 0, total: remainingPlayers.length });
 
   showScreen("screen-voting");
   startVotingCountdown(votingTimerSeconds);
@@ -2025,6 +2041,27 @@ function castVote(targetId) {
   myVoteTarget = targetId;
   markChosenVote();
   socket.send(JSON.stringify({ type: "submit_vote", target_id: targetId }));
+}
+
+/* The tally was already on the wire and simply discarded. Seeing votes land
+   live is most of the tension in this genre -- without it the phase is a
+   silent wait, and you cannot tell whether the room is converging on someone
+   or deadlocked into a tie. */
+function renderVoteProgress(data) {
+  const tally = data.tally || {};
+  for (const el of voteList.querySelectorAll("[data-tally-for]")) {
+    const count = tally[el.dataset.tallyFor] || 0;
+    el.textContent = count ? "●".repeat(Math.min(count, 6)) : "";
+    el.classList.toggle("has-votes", count > 0);
+  }
+  const skips = data.skips || 0;
+  skipTally.textContent = skips ? "●".repeat(Math.min(skips, 6)) : "";
+  skipTally.classList.toggle("has-votes", skips > 0);
+
+  const waiting = data.total - data.voted_count;
+  voteProgress.textContent = waiting > 0
+    ? `${data.voted_count}/${data.total} voted · waiting on ${waiting}`
+    : `${data.voted_count}/${data.total} voted · tallying…`;
 }
 
 function markChosenVote() {
@@ -2330,6 +2367,7 @@ function handleRoundReveal(data) {
 
     renderRoundHistory(roundHistory, roundLog);
     roundHistoryCard.hidden = false;
+    stillInCard.hidden = true;
 
     newRoundBtn.hidden = myId !== hostId;
     newRoundBtn.disabled = false;
@@ -2356,11 +2394,37 @@ function handleRoundReveal(data) {
     outcomeTitle.textContent = ejection.title;
     // A failed last-chance guess is a real beat -- say so, otherwise the
     // guess phase just silently vanishes for everyone watching.
+    // One sentence, not two clauses that read as unrelated: "They were an
+    // imposter. They ran out of time." sounded like the round had expired
+    // rather than their last-chance guess.
     outcomeSub.textContent = guess
-      ? `${ejection.sub} ${guess.text ? `They guessed “${guess.text}” — wrong.` : "They ran out of time."}`
+      ? `${ejection.sub} ${guess.text
+          ? `Their guess of “${guess.text}” was wrong.`
+          : "They ran out of time to name the character."}`
       : ejection.sub;
 
-    revealRoles.hidden = true;
+    // Mid-round reveal used to be a banner over an otherwise blank screen.
+    // Showing who went and who is left makes the pause feel like a beat in
+    // the game rather than dead air, and matches how players are shown
+    // everywhere else -- as avatar cards, not as a name in a sentence.
+    const ejected = players.find((p) => p.id === data.ejected_id);
+    if (ejected) {
+      revealRolesHeading.textContent = "Ejected this round";
+      renderPlayerCards(imposterCards, [ejected], { mode: "reveal", allowReactions: false });
+      revealRoles.hidden = false;
+    } else {
+      revealRoles.hidden = true;
+    }
+
+    const survivors = remainingPlayers.filter((p) => p.id !== data.ejected_id);
+    if (survivors.length) {
+      stillInHeading.textContent = `Still in — ${survivors.length} player${survivors.length === 1 ? "" : "s"}`;
+      renderPlayerCards(stillInCards, survivors, { mode: "reveal", allowReactions: false });
+      stillInCard.hidden = false;
+    } else {
+      stillInCard.hidden = true;
+    }
+
     revealCharacter.hidden = true;
     roundHistoryCard.hidden = true;
     newRoundBtn.hidden = true;
