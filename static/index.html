@@ -202,6 +202,32 @@
         </form>
       </div>
 
+
+      <!-- Layer 1 renders instantly from local data; layer 2 is the optional
+           live lookup. Present on both hints and voting so a player can read
+           up while waiting for their turn or while weighing someone's hint.
+           Hidden entirely for a blind imposter, who holds no character. -->
+      <div id="char-info-hints" class="card char-info" hidden>
+        <button id="char-info-toggle-hints" type="button" class="char-info-toggle">
+          <span class="char-info-icon" aria-hidden="true">📖</span>
+          <span id="char-info-title-hints" class="char-info-title"></span>
+          <span id="char-info-chevron-hints" class="anime-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div id="char-info-body-hints" class="char-info-body" hidden>
+          <p id="char-info-summary-hints" class="char-info-summary"></p>
+          <p id="char-info-genres-hints" class="char-info-genres"></p>
+          <p id="char-info-loading-hints" class="muted" hidden>Loading…</p>
+          <!-- Error before the retry button: "it failed, [Try again]" reads in
+               the order it happened; the reverse looks like a stray button. -->
+          <p id="char-info-error-hints" class="error" hidden></p>
+          <button id="char-info-more-hints" type="button" class="ghost tiny">Learn more about them</button>
+          <div id="char-info-extra-hints" class="char-info-extra" hidden>
+            <img id="char-info-image-hints" alt="" />
+            <p id="char-info-about-hints"></p>
+          </div>
+        </div>
+      </div>
+
       <div class="card">
         <h3>Everyone</h3>
         <div id="hints-player-cards" class="player-grid"></div>
@@ -216,6 +242,32 @@
         <h2>Who's the imposter?</h2>
         <p id="voting-timer-display" class="timer-display"></p>
         <div id="voting-player-cards" class="player-grid"></div>
+      </div>
+
+
+      <!-- Layer 1 renders instantly from local data; layer 2 is the optional
+           live lookup. Present on both hints and voting so a player can read
+           up while waiting for their turn or while weighing someone's hint.
+           Hidden entirely for a blind imposter, who holds no character. -->
+      <div id="char-info-voting" class="card char-info" hidden>
+        <button id="char-info-toggle-voting" type="button" class="char-info-toggle">
+          <span class="char-info-icon" aria-hidden="true">📖</span>
+          <span id="char-info-title-voting" class="char-info-title"></span>
+          <span id="char-info-chevron-voting" class="anime-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div id="char-info-body-voting" class="char-info-body" hidden>
+          <p id="char-info-summary-voting" class="char-info-summary"></p>
+          <p id="char-info-genres-voting" class="char-info-genres"></p>
+          <p id="char-info-loading-voting" class="muted" hidden>Loading…</p>
+          <!-- Error before the retry button: "it failed, [Try again]" reads in
+               the order it happened; the reverse looks like a stray button. -->
+          <p id="char-info-error-voting" class="error" hidden></p>
+          <button id="char-info-more-voting" type="button" class="ghost tiny">Learn more about them</button>
+          <div id="char-info-extra-voting" class="char-info-extra" hidden>
+            <img id="char-info-image-voting" alt="" />
+            <p id="char-info-about-voting"></p>
+          </div>
+        </div>
       </div>
 
       <div id="previous-rounds-card" class="card" hidden>

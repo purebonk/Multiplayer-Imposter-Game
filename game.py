@@ -269,6 +269,8 @@ async def _begin_game(room: Room, character_result: dict) -> None:
     room.character_name = character_result["character"]
     room.anime_title = character_result["anime_title"]
     room.decoy_name = character_result.get("decoy")
+    room.character_info = character_result.get("info")
+    room.decoy_info = character_result.get("decoy_info")
 
     # Spectators become real players here, and ONLY here.
     #
@@ -322,6 +324,10 @@ async def _begin_game(room: Room, character_result: dict) -> None:
                 # character's name is still never sent to them.
                 payload["character"] = decoy
                 payload["decoy_mode"] = True
+                # Symmetric access, strictly about THEIR character. Same key,
+                # same shape, same wording as crew get -- nothing in the
+                # payload marks it as describing a decoy.
+                payload["character_info"] = room.decoy_info
             else:
                 # Deliberately withhold anime_title here: with only ~30 anime in
                 # the pool, naming the show narrows the character down almost as
@@ -329,6 +335,10 @@ async def _begin_game(room: Room, character_result: dict) -> None:
                 # role is gives enough to bluff without being a giveaway.
                 payload["character"] = None
                 payload["decoy_mode"] = False
+                # No character_info key at all. A blind imposter holds no
+                # character, so there is nothing they are entitled to read --
+                # and omitting the key entirely (rather than sending null)
+                # means there is no field for a bug to later populate.
                 if room.give_imposter_hint:
                     payload["hint"] = {
                         "genres": character_result["genres"],
@@ -341,6 +351,7 @@ async def _begin_game(room: Room, character_result: dict) -> None:
         else:
             payload["character"] = room.character_name
             payload["anime_title"] = room.anime_title
+            payload["character_info"] = room.character_info
         await room.send_to(pid, payload)
 
     await _begin_next_round(room)

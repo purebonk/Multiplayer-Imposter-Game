@@ -1358,3 +1358,80 @@ button.tiny {
 @media (prefers-reduced-motion: reduce) {
   .anime-pill { transition: none; }
 }
+
+/* --- in-round character info panel (Phase 3.17) ---------------------
+   Reuses the post-game details block's visual language rather than
+   inventing a second one: same card, same soft image treatment, same
+   muted body copy. */
+
+.char-info:not([hidden]) {
+  gap: 0.6rem;
+  padding: 1rem 1.1rem;
+}
+
+.char-info-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.05rem;
+  padding: 0;
+  text-align: left;
+}
+
+.char-info-toggle:active:not(:disabled) { transform: none; }
+.char-info-icon { font-size: 1.15rem; line-height: 1; }
+.char-info-title { flex: 1; min-width: 0; }
+
+.char-info-body:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.char-info-summary {
+  margin: 0;
+  font-size: 0.98rem;
+  color: var(--ink);
+}
+
+.char-info-genres {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+
+.char-info-extra:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.char-info-extra img:not([hidden]) {
+  display: block;
+  width: 132px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border);
+}
+
+#char-info-about-hints,
+#char-info-about-voting {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  /* Jikan bios run long; cap the height so the panel can't push the hint
+     form or the vote list off screen. */
+  max-height: 11rem;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}

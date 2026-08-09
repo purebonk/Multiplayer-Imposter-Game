@@ -118,6 +118,22 @@ CHARACTER_RESULT = {
     "character_role": "Main",
     "difficulty": "easy",
     "decoy": "Roy Mustang",
+    # Layer-1 blurbs, shaped exactly as characters.get_character() returns
+    # them. Both describe characters from the same show, so the genres match.
+    "info": {
+        "name": "Edward Elric",
+        "summary": "A core cast member of a widely-known series",
+        "genres": ["Action", "Adventure", "Drama", "Fantasy"],
+        "prominence": "core",
+        "reach": "popular",
+    },
+    "decoy_info": {
+        "name": "Roy Mustang",
+        "summary": "A core cast member of a widely-known series",
+        "genres": ["Action", "Adventure", "Drama", "Fantasy"],
+        "prominence": "core",
+        "reach": "popular",
+    },
 }
 
 

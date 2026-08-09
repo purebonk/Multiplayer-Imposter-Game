@@ -86,6 +86,51 @@ def _pick_decoy(anime: dict, chosen: dict, difficulty: str) -> "str | None":
 
 ALL_TITLES = tuple(sorted(a["title"] for a in ANIME_POOL))
 
+# Phrasing for the instant, offline "who is this" blurb. Built from the two
+# signals the pool already stores, so it costs nothing and cannot fail.
+#
+# Deliberately never names the series. Crew are told the anime separately, but
+# an imposter holding a decoy is not -- and since a decoy is always drawn from
+# the same show, naming it here would hand them the one fact the blind/decoy
+# split is designed to withhold. Describing the show instead of naming it
+# keeps the blurb identical in shape for everyone who can see one.
+_PROMINENCE_PHRASE = {
+    "core": "A core cast member",
+    "notable": "A recurring character",
+    "deep": "A minor character",
+}
+_REACH_PHRASE = {
+    "mega": "a hugely mainstream series",
+    "popular": "a widely-known series",
+    "cult": "a cult-favourite series",
+}
+
+
+def describe_character(anime: dict, character: dict) -> dict:
+    """Layer 1: everything a player needs to bluff or read a hint, from local
+    data only. No network call, no failure mode, no latency."""
+    prominence = character.get("prominence", DEFAULT_PROMINENCE)
+    reach = anime.get("reach", DEFAULT_REACH)
+    return {
+        "name": character["name"],
+        "summary": f"{_PROMINENCE_PHRASE[prominence]} of {_REACH_PHRASE[reach]}",
+        "genres": list(anime["genres"]),
+        "prominence": prominence,
+        "reach": reach,
+    }
+
+
+def describe_by_name(anime_title: str, character_name: str) -> "dict | None":
+    """Same blurb, looked up by name. Used to rebuild a decoy's info on
+    reconnect without re-deriving which anime it came from."""
+    anime = next((a for a in ANIME_POOL if a["title"] == anime_title), None)
+    if anime is None:
+        return None
+    character = next((c for c in anime["characters"] if c["name"] == character_name), None)
+    if character is None:
+        return None
+    return describe_character(anime, character)
+
 
 def _selected(titles) -> list[dict]:
     """The anime a room is drawing from. None/empty means the whole pool."""
@@ -202,15 +247,22 @@ async def get_character(difficulty: str = "easy", titles=None) -> dict:
         raise RuntimeError(f"no characters available at difficulty {difficulty!r}")
     anime = random.choice(pool)
     chosen = random.choice(_filter_by_difficulty(anime, difficulty))
+    decoy_name = _pick_decoy(anime, chosen, difficulty)
+    decoy_entry = next((c for c in anime["characters"] if c["name"] == decoy_name), None)
     return {
         "character": chosen["name"],
         "anime_title": anime["title"],
         "genres": anime["genres"],
+        # Layer 1 blurbs, precomputed for both the real character and the
+        # decoy. Keeping them separate here is what lets game.py hand each
+        # client only the one describing the character IT holds.
+        "info": describe_character(anime, chosen),
+        "decoy_info": describe_character(anime, decoy_entry) if decoy_entry else None,
         # Collapsed to MAL's old vocabulary on purpose: this only feeds the
         # imposter's vague "a main character" / "a supporting character" hint,
         # and leaking the full three-way prominence there would narrow the
         # answer more than the hint is meant to.
         "character_role": "Main" if chosen.get("prominence") == "core" else "Supporting",
         "difficulty": difficulty_of(anime, chosen),
-        "decoy": _pick_decoy(anime, chosen, difficulty),
+        "decoy": decoy_name,
     }

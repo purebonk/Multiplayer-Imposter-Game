@@ -1042,6 +1042,7 @@ function handleReconnected(data) {
   myAnimeTitle = data.anime_title || null;
   myDecoyMode = data.decoy_mode === true;
   myTeammates = data.teammates || [];
+  setCharacterInfo(data.character_info);
   roundNumber = data.round_number;
   maxRounds = data.max_rounds;
   remainingPlayers = data.remaining_players || [];
@@ -1101,6 +1102,7 @@ function enterSpectatorMode(data) {
   myHint = null;
   myTeammates = [];
   myDecoyMode = false;
+  setCharacterInfo(null);
 
   roundNumber = data.round_number || 0;
   maxRounds = data.max_rounds || 0;
@@ -1398,6 +1400,157 @@ startGameBtn.addEventListener("click", () => {
   socket.send(JSON.stringify({ type: "start_game" }));
 });
 
+
+/* --------------------- in-round character info panel ---------------------
+   Playtesting problem: crew know the character's NAME but often don't
+   recognise them, so they can neither give a meaningful hint nor read anyone
+   else's. Two layers:
+
+     1. An instant blurb built entirely from local pool data (prominence +
+        reach + genres), delivered in the game_started payload. No fetch, no
+        latency, no failure mode -- it is simply always there.
+     2. An optional live Jikan lookup behind a second click, reusing the same
+        isolated endpoint the post-game reveal already uses. If it fails, the
+        panel says so and layer 1 stays on screen.
+
+   Neither layer can block hint submission or voting: everything here is a
+   sibling card that only ever writes to its own DOM.
+
+   Secrecy: the server decides who gets a `character_info` at all. A blind
+   imposter's payload has no such key, so `myCharacterInfo` stays null and the
+   panel never leaves `hidden`. A decoy imposter gets the blurb for THEIR
+   character, in the identical shape and wording crew get -- nothing in the
+   copy or the data says "decoy".
+--------------------------------------------------------------------------- */
+
+const CHAR_INFO_SCREENS = ["hints", "voting"];
+let myCharacterInfo = null;
+// Cached per character name so re-opening the panel, or opening it on the
+// other screen, never re-hits the API.
+let charInfoExtraCache = {};
+let charInfoExpanded = false;
+
+function charInfoEls(key) {
+  return {
+    card: document.getElementById(`char-info-${key}`),
+    toggle: document.getElementById(`char-info-toggle-${key}`),
+    title: document.getElementById(`char-info-title-${key}`),
+    chevron: document.getElementById(`char-info-chevron-${key}`),
+    body: document.getElementById(`char-info-body-${key}`),
+    summary: document.getElementById(`char-info-summary-${key}`),
+    genres: document.getElementById(`char-info-genres-${key}`),
+    more: document.getElementById(`char-info-more-${key}`),
+    loading: document.getElementById(`char-info-loading-${key}`),
+    error: document.getElementById(`char-info-error-${key}`),
+    extra: document.getElementById(`char-info-extra-${key}`),
+    image: document.getElementById(`char-info-image-${key}`),
+    about: document.getElementById(`char-info-about-${key}`),
+  };
+}
+
+function renderCharacterInfo() {
+  for (const key of CHAR_INFO_SCREENS) {
+    const el = charInfoEls(key);
+    if (!el.card) continue;
+
+    // The single gate. No info means no panel -- which is exactly the blind
+    // imposter's case, and also a spectator's.
+    if (!myCharacterInfo) {
+      el.card.hidden = true;
+      continue;
+    }
+
+    el.card.hidden = false;
+    el.title.textContent = `Who is ${myCharacterInfo.name}?`;
+    el.summary.textContent = myCharacterInfo.summary;
+    el.genres.textContent = `Genres: ${(myCharacterInfo.genres || []).join(", ")}`;
+    el.body.hidden = !charInfoExpanded;
+    el.chevron.textContent = charInfoExpanded ? "▴" : "▾";
+
+    const cached = charInfoExtraCache[myCharacterInfo.name];
+    el.more.hidden = !!cached;
+    el.loading.hidden = true;
+    if (cached && cached.ok) {
+      el.error.hidden = true;
+      el.extra.hidden = false;
+      if (cached.image_url) {
+        el.image.src = cached.image_url;
+        el.image.hidden = false;
+      } else {
+        el.image.hidden = true;
+      }
+      el.about.textContent = cached.about;
+    } else if (cached) {
+      el.extra.hidden = true;
+      el.error.hidden = false;
+      el.error.textContent = cached.message;
+      el.more.hidden = false;
+      el.more.textContent = "Try again";
+    } else {
+      el.error.hidden = true;
+      el.extra.hidden = true;
+      el.more.textContent = "Learn more about them";
+    }
+  }
+}
+
+function setCharacterInfo(info) {
+  myCharacterInfo = info || null;
+  charInfoExpanded = false;
+  charInfoExtraCache = {};
+  renderCharacterInfo();
+}
+
+async function loadCharacterExtra() {
+  if (!myCharacterInfo) return;
+  const name = myCharacterInfo.name;
+  for (const key of CHAR_INFO_SCREENS) {
+    const el = charInfoEls(key);
+    if (!el.card) continue;
+    el.more.hidden = true;
+    el.error.hidden = true;
+    el.loading.hidden = false;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), DETAILS_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(
+      `/api/character-details?character=${encodeURIComponent(name)}`,
+      { signal: controller.signal }
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || "Couldn't load extra details right now.");
+    }
+    const details = await res.json();
+    charInfoExtraCache[name] = { ok: true, image_url: details.image_url, about: details.about };
+  } catch (err) {
+    // Never rethrown and never surfaced anywhere but this panel: layer 1 is
+    // still on screen and the round is entirely unaffected.
+    charInfoExtraCache[name] = {
+      ok: false,
+      message:
+        err.name === "AbortError"
+          ? "Couldn't load extra details — the request took too long. The rest of this panel still works."
+          : "Couldn't load extra details right now. The rest of this panel still works.",
+    };
+  } finally {
+    clearTimeout(timeoutId);
+    renderCharacterInfo();
+  }
+}
+
+for (const key of CHAR_INFO_SCREENS) {
+  const el = charInfoEls(key);
+  if (!el.toggle) continue;
+  el.toggle.addEventListener("click", () => {
+    charInfoExpanded = !charInfoExpanded;
+    renderCharacterInfo();
+  });
+  el.more.addEventListener("click", loadCharacterExtra);
+}
+
 function handleGameStarted(data) {
   startingLoading.hidden = true;
   myRole = data.your_role;
@@ -1406,6 +1559,9 @@ function handleGameStarted(data) {
   myHint = data.hint || null;
   myTeammates = data.teammates || [];
   myDecoyMode = data.decoy_mode === true;
+  // Absent for a blind imposter, so this clears the panel rather than
+  // leaving a previous round's character on screen.
+  setCharacterInfo(data.character_info);
 }
 
 function roleBannerText() {

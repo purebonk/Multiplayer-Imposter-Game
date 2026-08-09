@@ -482,6 +482,10 @@ async def _resume_session(websocket: WebSocket, room, room_code: str, player, ip
         if is_imposter:
             snapshot["character"] = room.decoy_name if room.imposter_mode == "similar" else None
             snapshot["decoy_mode"] = room.imposter_mode == "similar" and bool(room.decoy_name)
+            # Same split as game_started: a decoy imposter gets the blurb for
+            # THEIR character, a blind one gets no character_info key at all.
+            if snapshot["decoy_mode"]:
+                snapshot["character_info"] = room.decoy_info
             snapshot["teammates"] = [
                 room.imposter_profiles[other]["name"]
                 for other in room.imposter_ids
@@ -490,6 +494,7 @@ async def _resume_session(websocket: WebSocket, room, room_code: str, player, ip
         else:
             snapshot["character"] = room.character_name
             snapshot["anime_title"] = room.anime_title
+            snapshot["character_info"] = room.character_info
 
     # A guesser who refreshed mid-guess needs the picker rebuilt, or they'd be
     # staring at an empty dropdown with the clock running.

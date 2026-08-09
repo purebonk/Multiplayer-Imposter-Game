@@ -140,6 +140,11 @@ class Room:
     # a reconnecting imposter is given back the identical decoy rather than a
     # different one, which would be an obvious tell.
     decoy_name: Optional[str] = None
+    # Layer-1 blurbs, held separately so each client can be sent only the one
+    # describing the character IT holds. character_info must never reach an
+    # imposter; decoy_info must never reach anyone else.
+    character_info: Optional[dict] = None
+    decoy_info: Optional[dict] = None
     # Fixed once per GAME at start_game/new_round, not per round -- an
     # elimination-style game keeps the same imposters across every round
     # until someone wins. Full player summaries (name + avatar) are snapshotted
@@ -300,6 +305,8 @@ class Room:
         self.character_name = None
         self.anime_title = None
         self.decoy_name = None
+        self.character_info = None
+        self.decoy_info = None
         self.imposter_ids = set()
         self.imposter_profiles = {}
         self.eliminated_ids = set()
