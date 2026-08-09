@@ -1089,7 +1089,12 @@ function handleReconnected(data) {
 }
 
 function applyPoolSettings(data) {
-  if (Array.isArray(data.selected_anime)) selectedAnime = data.selected_anime;
+  if (Array.isArray(data.selected_anime)) {
+    selectedAnime = data.selected_anime;
+    // A broadcast is committed state, so any local staging is resolved --
+    // except for our own uncommitted Clear, which has nothing to resolve.
+    if (selectedAnime.length) animeCleared = false;
+  }
   renderAnimePicker();
   renderPoolCounts(data.pool_counts);
 }
@@ -1216,10 +1221,7 @@ function renderLobby() {
   }
 
   startGameBtn.hidden = !isHost;
-  // poolUnplayable as well as the headcount: renderLobby runs after
-  // applyPoolSettings on every settings broadcast, so leaving it out here
-  // would silently re-enable a Start button the server is going to refuse.
-  startGameBtn.disabled = players.length < MIN_PLAYERS || poolUnplayable;
+  updateStartAvailability();
   hostHint.textContent =
     isHost && players.length < MIN_PLAYERS
       ? `Need at least ${MIN_PLAYERS} players to start.`
@@ -1231,15 +1233,27 @@ function renderLobby() {
    grid of toggle pills: scannable at a glance, one click per change, and the
    search box makes finding a specific show instant.
 
-   Collapsed behind a summary line by default ("All 66 anime"), because the
+   Collapsed behind a summary line by default ("All anime"), because the
    default IS all -- customising is opt-in and never sits between the host and
-   pressing Start. An empty selection means "all", which is also what the
-   server treats it as, so there is no state where the pool is empty.
+   pressing Start.
+
+   Two reset buttons, deliberately distinct:
+     Reset  -- back to the default, every anime in the pool.
+     Clear  -- deselect everything, so a group can tick just the four shows
+               they have all actually seen without un-ticking sixty-three.
+
+   "Nothing selected" is a client-only staging state and is never sent: the
+   server treats an empty list as "all" and rejects one that resolves to
+   nothing, so committing it would either silently mean the opposite of what
+   the host clicked or bounce. It simply waits until they pick the first show,
+   with Start disabled meanwhile.
 --------------------------------------------------------------------------- */
 
 let animeCatalog = [];
-let selectedAnime = [];   // empty == all
+let selectedAnime = [];   // committed to the server; empty == all
 let animeFilter = "";
+// Client-only: the host pressed Clear and has not picked anything yet.
+let animeCleared = false;
 // True when the chosen anime have no characters in the chosen tier.
 let poolUnplayable = false;
 
@@ -1256,12 +1270,19 @@ async function loadAnimeCatalog() {
   renderAnimePicker();
 }
 
+function noneSelected() {
+  return animeCleared && selectedAnime.length === 0;
+}
+
 function renderAnimePicker() {
   const chosen = new Set(selectedAnime);
-  const usingAll = chosen.size === 0;
-  animeSummary.textContent = usingAll
-    ? `All ${animeCatalog.length} anime`
-    : `${chosen.size} of ${animeCatalog.length} selected`;
+  const usingAll = !animeCleared && chosen.size === 0;
+  animeSummary.textContent = noneSelected()
+    ? "None selected"
+    : usingAll
+      ? `All ${animeCatalog.length} anime`
+      : `${chosen.size} of ${animeCatalog.length} selected`;
+  animeSummary.classList.toggle("is-empty", noneSelected());
 
   const query = animeFilter.trim().toLowerCase();
   animeList.innerHTML = "";
@@ -1292,23 +1313,31 @@ function renderAnimePicker() {
 
 function toggleAnime(title) {
   const chosen = new Set(selectedAnime);
-  if (chosen.size === 0) {
-    // First click out of "all": start from everything, minus the one clicked.
+  // Starting from "all", the first click is a subtraction from everything.
+  // Starting from cleared, it is the first addition to nothing -- which is the
+  // whole point of Clear.
+  if (!animeCleared && chosen.size === 0) {
     for (const anime of animeCatalog) chosen.add(anime.title);
   }
   if (chosen.has(title)) chosen.delete(title);
   else chosen.add(title);
 
   if (chosen.size === 0) {
-    // Zero anime is not a state the game can run in. Rather than let the host
-    // create it and be refused later, deselecting the last one folds back to
-    // "all" -- which is what an empty selection means everywhere else.
+    // Deselecting the last one lands in the same staging state as Clear.
+    // Silently flipping to "all" here (the old behaviour) meant un-ticking
+    // your final show did the exact opposite of what it looked like.
+    animeCleared = true;
     selectedAnime = [];
-  } else if (chosen.size === animeCatalog.length) {
-    selectedAnime = [];   // everything selected IS "all"
-  } else {
-    selectedAnime = animeCatalog.map((a) => a.title).filter((t) => chosen.has(t));
+    renderAnimePicker();
+    updateStartAvailability();
+    return;   // nothing to commit yet
   }
+
+  animeCleared = false;
+  selectedAnime =
+    chosen.size === animeCatalog.length
+      ? []   // everything selected IS "all"
+      : animeCatalog.map((a) => a.title).filter((t) => chosen.has(t));
   renderAnimePicker();
   sendSettingsUpdate();
 }
@@ -1325,20 +1354,21 @@ animeSearch.addEventListener("input", () => {
   renderAnimePicker();
 });
 
+// Reset: back to the default, every anime.
 animeAllBtn.addEventListener("click", () => {
+  animeCleared = false;
   selectedAnime = [];
   renderAnimePicker();
   sendSettingsUpdate();
 });
 
+// Clear: deselect everything so the host can tick up from nothing. Not sent --
+// see the note at the top of this section.
 animeNoneBtn.addEventListener("click", () => {
-  // "Clear" resets to the full pool rather than to nothing, for the same
-  // reason as above: an empty pool is not a runnable game.
+  animeCleared = true;
   selectedAnime = [];
-  animeSearch.value = "";
-  animeFilter = "";
   renderAnimePicker();
-  sendSettingsUpdate();
+  updateStartAvailability();
 });
 
 /* Live per-tier counts for the current selection. This is what makes the
@@ -1354,15 +1384,27 @@ function renderPoolCounts(counts) {
     .join(" · ");
 
   const available = counts[difficulty] || 0;
-  animeWarning.hidden = available > 0;
-  if (!available) {
+  poolUnplayable = available === 0;
+  updateStartAvailability();
+}
+
+/* One gate for the Start button. renderLobby and renderPoolCounts both run on
+   a settings broadcast, so if each set `disabled` on its own the later one
+   would quietly overwrite the other's reason. */
+function updateStartAvailability() {
+  const blocked = players.length < MIN_PLAYERS || noneSelected() || poolUnplayable;
+  startGameBtn.disabled = blocked;
+
+  if (noneSelected()) {
+    animeWarning.hidden = false;
+    animeWarning.textContent = "No anime selected — pick at least one to start.";
+  } else if (poolUnplayable) {
+    animeWarning.hidden = false;
     animeWarning.textContent =
       `No ${difficulty} characters in this selection — pick more anime or change the difficulty.`;
+  } else {
+    animeWarning.hidden = true;
   }
-  // Starting would be refused server-side anyway; disabling it here means the
-  // host sees why rather than discovering it by being rejected.
-  poolUnplayable = available === 0;
-  startGameBtn.disabled = players.length < MIN_PLAYERS || poolUnplayable;
 }
 
 const SETTINGS_FLASH_MS = 1600;

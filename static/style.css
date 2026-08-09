@@ -1443,3 +1443,7 @@ button.tiny {
   font-size: 0.95rem;
   color: var(--coral-deep);
 }
+
+/* "None selected" is a dead-end the host has to resolve, so it reads as a
+   warning rather than as a neutral count. */
+.anime-summary.is-empty { color: var(--berry); }

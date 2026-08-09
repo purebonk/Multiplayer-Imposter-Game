@@ -147,7 +147,7 @@
           <div class="anime-picker">
             <button id="anime-toggle" type="button" class="anime-toggle">
               <span class="anime-toggle-label">Anime pool</span>
-              <span id="anime-summary" class="anime-summary">All 66 anime</span>
+              <span id="anime-summary" class="anime-summary">All anime</span>
               <span id="anime-chevron" class="anime-chevron" aria-hidden="true">▾</span>
             </button>
 
@@ -161,8 +161,10 @@
                   autocomplete="off"
                   spellcheck="false"
                 />
-                <button id="anime-all-btn" type="button" class="ghost tiny">All</button>
-                <button id="anime-none-btn" type="button" class="ghost tiny">Clear</button>
+                <button id="anime-all-btn" type="button" class="ghost tiny"
+                        title="Back to the default: every anime in the pool">Reset</button>
+                <button id="anime-none-btn" type="button" class="ghost tiny"
+                        title="Deselect everything, then pick just the shows you've watched">Clear</button>
               </div>
               <p id="anime-counts" class="anime-counts"></p>
               <p id="anime-warning" class="error anime-warning" hidden></p>

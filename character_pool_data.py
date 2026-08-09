@@ -1269,4 +1269,23 @@ ANIME_POOL = [
             {"name": "Wolfgang Grimmer", "prominence": "deep"},
         ],
     },
+    {
+        "title": "The Apothecary Diaries",
+        "mal_id": None,
+        "genres": ["Mystery", "Drama", "Historical"],
+        "reach": "popular",
+        "synopsis": "A pharmacist's apprentice sold into the imperial palace quietly solves poisonings and court intrigue while trying to avoid being promoted.",
+        "characters": [
+            {"name": "Maomao", "prominence": "core"},
+            {"name": "Jinshi", "prominence": "core"},
+            {"name": "Gaoshun", "prominence": "notable"},
+            {"name": "Consort Gyokuyou", "prominence": "notable"},
+            {"name": "Consort Lihua", "prominence": "notable"},
+            {"name": "Luomen", "prominence": "notable"},
+            {"name": "Lakan", "prominence": "notable"},
+            {"name": "Xiaolan", "prominence": "deep"},
+            {"name": "Consort Lishu", "prominence": "deep"},
+            {"name": "Suirei", "prominence": "deep"},
+        ],
+    },
 ]
