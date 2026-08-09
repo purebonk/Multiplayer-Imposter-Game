@@ -66,6 +66,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure"],
         "reach": "mega",
+        "synopsis": "An orphaned ninja with a sealed demon fox inside him trains to become his village's leader while chasing the friend who abandoned it.",
         "characters": [
             {"name": "Naruto Uzumaki", "prominence": "core"},
             {"name": "Sasuke Uchiha", "prominence": "core"},
@@ -101,6 +102,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Fantasy"],
         "reach": "mega",
+        "synopsis": "A rubber-bodied pirate and his crew sail a vast ocean hunting the world's greatest treasure, gathering misfits with strange powers.",
         "characters": [
             {"name": "Monkey D. Luffy", "prominence": "core"},
             {"name": "Roronoa Zoro", "prominence": "core"},
@@ -127,6 +129,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Fantasy"],
         "reach": "mega",
+        "synopsis": "An alien-raised martial artist and his friends defend Earth from ever-stronger warriors through tournaments and planet-scale battles.",
         "characters": [
             {"name": "Goku", "prominence": "core"},
             {"name": "Vegeta", "prominence": "core"},
@@ -153,6 +156,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Drama", "Fantasy", "Mystery"],
         "reach": "mega",
+        "synopsis": "Humanity hides behind enormous walls from man-eating giants, until the walls break and soldiers fight back with grappling gear.",
         "characters": [
             {"name": "Eren Yeager", "prominence": "core"},
             {"name": "Mikasa Ackerman", "prominence": "core"},
@@ -177,6 +181,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Mystery", "Psychological", "Supernatural"],
         "reach": "mega",
+        "synopsis": "A brilliant student finds a notebook that kills anyone whose name he writes in it, and a rival detective tries to unmask him.",
         "characters": [
             {"name": "Light Yagami", "prominence": "core"},
             {"name": "L", "prominence": "core"},
@@ -197,6 +202,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Fantasy"],
         "reach": "mega",
+        "synopsis": "After demons slaughter his family and turn his sister into one, a boy joins a sword corps hunting them to find a cure.",
         "characters": [
             {"name": "Tanjiro Kamado", "prominence": "core"},
             {"name": "Nezuko Kamado", "prominence": "core"},
@@ -220,6 +226,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Fantasy", "Horror"],
         "reach": "mega",
+        "synopsis": "A student swallows a cursed finger and shares his body with a monstrous spirit while training among sorcerers who exorcise curses.",
         "characters": [
             {"name": "Yuji Itadori", "prominence": "core"},
             {"name": "Megumi Fushiguro", "prominence": "core"},
@@ -240,6 +247,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure"],
         "reach": "mega",
+        "synopsis": "In a world where nearly everyone has superpowers, a powerless boy inherits one and enrols in a school for heroes.",
         "characters": [
             {"name": "Izuku Midoriya", "prominence": "core"},
             {"name": "Katsuki Bakugo", "prominence": "core"},
@@ -264,6 +272,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Fantasy", "Horror"],
         "reach": "mega",
+        "synopsis": "A destitute teenager fused with his chainsaw dog-demon becomes a government devil hunter, chasing a normal life he never gets.",
         "characters": [
             {"name": "Denji", "prominence": "core"},
             {"name": "Power", "prominence": "core"},
@@ -283,6 +292,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Comedy", "Slice of Life"],
         "reach": "mega",
+        "synopsis": "A master spy fakes a family for a mission, unaware his adopted daughter reads minds and his wife is an assassin.",
         "characters": [
             {"name": "Anya Forger", "prominence": "core"},
             {"name": "Loid Forger", "prominence": "core"},
@@ -300,6 +310,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Comedy", "Fantasy"],
         "reach": "mega",
+        "synopsis": "A boy and his electric mouse travel the world catching creatures and challenging gyms, chased by a bumbling criminal trio.",
         "characters": [
             {"name": "Pikachu", "prominence": "core"},
             {"name": "Ash Ketchum", "prominence": "core"},
@@ -322,6 +333,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Fantasy", "Romance"],
         "reach": "mega",
+        "synopsis": "A clumsy schoolgirl transforms into a sailor-suited guardian and gathers a team of magical girls to defend Earth.",
         "characters": [
             {"name": "Usagi Tsukino", "prominence": "core"},
             {"name": "Mamoru Chiba", "prominence": "core"},
@@ -341,6 +353,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Adventure", "Fantasy", "Supernatural"],
         "reach": "mega",
+        "synopsis": "A girl wanders into a spirit world and must work in a bathhouse for the gods to free her parents.",
         "characters": [
             {"name": "Chihiro Ogino", "prominence": "core"},
             {"name": "Haku", "prominence": "core"},
@@ -357,6 +370,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Adventure", "Fantasy", "Slice of Life"],
         "reach": "mega",
+        "synopsis": "Two sisters who move to the countryside befriend a giant forest spirit while their mother is ill.",
         "characters": [
             {"name": "Totoro", "prominence": "core"},
             {"name": "Satsuki Kusakabe", "prominence": "core"},
@@ -373,6 +387,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Drama", "Fantasy"],
         "reach": "popular",
+        "synopsis": "Two brothers maimed by a forbidden alchemy ritual search for a stone to restore their bodies, uncovering a national conspiracy.",
         "characters": [
             {"name": "Edward Elric", "prominence": "core"},
             {"name": "Alphonse Elric", "prominence": "core"},
@@ -396,6 +411,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Fantasy"],
         "reach": "popular",
+        "synopsis": "A teenager who can see ghosts inherits a soul reaper's powers and defends the living from monstrous spirits.",
         "characters": [
             {"name": "Ichigo Kurosaki", "prominence": "core"},
             {"name": "Rukia Kuchiki", "prominence": "core"},
@@ -418,6 +434,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Fantasy"],
         "reach": "popular",
+        "synopsis": "A boy sits a brutal licensing exam to become a Hunter and find his absent father, befriending an assassin's heir.",
         "characters": [
             {"name": "Gon Freecss", "prominence": "core"},
             {"name": "Killua Zoldyck", "prominence": "core"},
@@ -437,6 +454,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Comedy", "Sci-Fi"],
         "reach": "popular",
+        "synopsis": "A bored hero who defeats any monster in a single punch looks for a real challenge in a world of ranked professional heroes.",
         "characters": [
             {"name": "Saitama", "prominence": "core"},
             {"name": "Genos", "prominence": "core"},
@@ -455,6 +473,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Sports", "Comedy", "Drama"],
         "reach": "popular",
+        "synopsis": "A short, relentless boy joins his high school volleyball team and forms an explosive partnership with a genius setter.",
         "characters": [
             {"name": "Shoyo Hinata", "prominence": "core"},
             {"name": "Tobio Kageyama", "prominence": "core"},
@@ -474,6 +493,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Drama", "Horror", "Mystery"],
         "reach": "popular",
+        "synopsis": "A student is transplanted with ghoul organs and must survive between humans and the flesh-eating creatures hiding among them.",
         "characters": [
             {"name": "Ken Kaneki", "prominence": "core"},
             {"name": "Touka Kirishima", "prominence": "core"},
@@ -491,6 +511,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Fantasy", "Romance"],
         "reach": "popular",
+        "synopsis": "Players are trapped inside a virtual reality MMO where dying in the game kills them in real life.",
         "characters": [
             {"name": "Kirito", "prominence": "core"},
             {"name": "Asuna Yuuki", "prominence": "core"},
@@ -508,6 +529,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Drama", "Mecha", "Sci-Fi"],
         "reach": "popular",
+        "synopsis": "An exiled prince gains the power to command absolute obedience and leads a masked rebellion against an empire from inside a mecha war.",
         "characters": [
             {"name": "Lelouch Lamperouge", "prominence": "core"},
             {"name": "C.C.", "prominence": "core"},
@@ -524,6 +546,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Drama", "Mecha", "Psychological", "Sci-Fi"],
         "reach": "popular",
+        "synopsis": "A withdrawn boy is made to pilot a biomechanical mecha against enigmatic beings, in a story as much about depression as war.",
         "characters": [
             {"name": "Shinji Ikari", "prominence": "core"},
             {"name": "Rei Ayanami", "prominence": "core"},
@@ -541,6 +564,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Sci-Fi", "Space", "Adventure"],
         "reach": "popular",
+        "synopsis": "A jazz-scored crew of bounty hunters drifts through the solar system in a beat-up ship, each running from their own past.",
         "characters": [
             {"name": "Spike Spiegel", "prominence": "core"},
             {"name": "Faye Valentine", "prominence": "core"},
@@ -556,6 +580,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Fantasy"],
         "reach": "popular",
+        "synopsis": "A rowdy guild of wizards takes jobs together, led by a fire-breathing dragon slayer and a celestial spirit summoner.",
         "characters": [
             {"name": "Natsu Dragneel", "prominence": "core"},
             {"name": "Lucy Heartfilia", "prominence": "core"},
@@ -575,6 +600,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Comedy", "Supernatural"],
         "reach": "popular",
+        "synopsis": "An overwhelmingly powerful psychic middle-schooler tries to live normally while working for a con-man exorcist.",
         "characters": [
             {"name": "Shigeo Kageyama", "prominence": "core"},
             {"name": "Reigen Arataka", "prominence": "core"},
@@ -590,6 +616,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Drama", "Fantasy", "Psychological", "Thriller"],
         "reach": "popular",
+        "synopsis": "A boy pulled into a fantasy world discovers that dying rewinds him to a checkpoint, forcing him through the same horrors repeatedly.",
         "characters": [
             {"name": "Subaru Natsuki", "prominence": "core"},
             {"name": "Emilia", "prominence": "core"},
@@ -607,6 +634,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Adventure", "Drama", "Fantasy"],
         "reach": "popular",
+        "synopsis": "An elf mage outlives the hero's party she travelled with and retraces their journey, learning what her human friends meant to her.",
         "characters": [
             {"name": "Frieren", "prominence": "core"},
             {"name": "Fern", "prominence": "core"},
@@ -623,6 +651,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Fantasy"],
         "reach": "popular",
+        "synopsis": "The world's weakest monster-hunter gains a video-game-like levelling system and climbs from bottom-ranked to unstoppable.",
         "characters": [
             {"name": "Sung Jinwoo", "prominence": "core"},
             {"name": "Cha Hae-In", "prominence": "core"},
@@ -636,6 +665,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Romance", "Drama", "Supernatural"],
         "reach": "popular",
+        "synopsis": "Two teenagers who have never met begin swapping bodies across a distance neither of them understands.",
         "characters": [
             {"name": "Taki Tachibana", "prominence": "core"},
             {"name": "Mitsuha Miyamizu", "prominence": "core"},
@@ -649,6 +679,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Fantasy", "Supernatural"],
         "reach": "popular",
+        "synopsis": "Seven mages summon historical heroes as servants to fight a lethal tournament for a wish-granting grail.",
         "characters": [
             {"name": "Saber", "prominence": "core"},
             {"name": "Gilgamesh", "prominence": "core"},
@@ -666,6 +697,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Supernatural"],
         "reach": "popular",
+        "synopsis": "A generational saga of a family feuding with a vampire, where fighters manifest personified spirit powers and pose dramatically.",
         "characters": [
             {"name": "Jotaro Kujo", "prominence": "core"},
             {"name": "Dio Brando", "prominence": "core"},
@@ -686,6 +718,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Fantasy"],
         "reach": "popular",
+        "synopsis": "A cursed prince walks into a war between an industrial iron town and the gods of the forest it is destroying.",
         "characters": [
             {"name": "San", "prominence": "core"},
             {"name": "Ashitaka", "prominence": "core"},
@@ -700,6 +733,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Adventure", "Fantasy", "Romance"],
         "reach": "popular",
+        "synopsis": "A girl cursed into old age takes shelter in a walking castle belonging to a vain, powerful wizard during a magical war.",
         "characters": [
             {"name": "Howl", "prominence": "core"},
             {"name": "Sophie Hatter", "prominence": "core"},
@@ -715,6 +749,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Fantasy", "Romance"],
         "reach": "popular",
+        "synopsis": "A schoolgirl falls down a well into feudal Japan and travels with a half-demon to collect the shards of a shattered jewel.",
         "characters": [
             {"name": "Inuyasha", "prominence": "core"},
             {"name": "Kagome Higurashi", "prominence": "core"},
@@ -733,6 +768,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Comedy", "Fantasy", "Supernatural"],
         "reach": "popular",
+        "synopsis": "Students at a gothic academy fight alongside partners who transform into weapons, hunting corrupted souls.",
         "characters": [
             {"name": "Maka Albarn", "prominence": "core"},
             {"name": "Soul Evans", "prominence": "core"},
@@ -750,6 +786,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Comedy", "Fantasy"],
         "reach": "popular",
+        "synopsis": "A boy born with no magic in a world defined by it swears to become the wizard king through sheer stubbornness.",
         "characters": [
             {"name": "Asta", "prominence": "core"},
             {"name": "Yuno", "prominence": "core"},
@@ -767,6 +804,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Adventure", "Comedy", "Sci-Fi"],
         "reach": "popular",
+        "synopsis": "Humanity is petrified for millennia; a teenage science prodigy revives and rebuilds civilisation from scratch.",
         "characters": [
             {"name": "Senku Ishigami", "prominence": "core"},
             {"name": "Taiju Oki", "prominence": "core"},
@@ -784,6 +822,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Mystery", "Psychological", "Thriller"],
         "reach": "popular",
+        "synopsis": "Orphans discover their idyllic home is a farm raising them as food, and plan an escape under their caretaker's eye.",
         "characters": [
             {"name": "Emma", "prominence": "core"},
             {"name": "Norman", "prominence": "core"},
@@ -800,6 +839,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Comedy", "School"],
         "reach": "popular",
+        "synopsis": "A class of misfits is tasked with killing their own teacher, a grinning tentacled creature who is also the best teacher they've had.",
         "characters": [
             {"name": "Koro-sensei", "prominence": "core"},
             {"name": "Nagisa Shiota", "prominence": "core"},
@@ -817,6 +857,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Comedy", "Psychological", "Romance"],
         "reach": "popular",
+        "synopsis": "Two brilliant student council members are in love but each refuses to confess first, turning courtship into psychological warfare.",
         "characters": [
             {"name": "Kaguya Shinomiya", "prominence": "core"},
             {"name": "Miyuki Shirogane", "prominence": "core"},
@@ -832,6 +873,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Comedy", "Drama", "Romance"],
         "reach": "popular",
+        "synopsis": "A tiny, ferocious girl and a boy with a frightening glare team up to set each other up with their respective crushes.",
         "characters": [
             {"name": "Taiga Aisaka", "prominence": "core"},
             {"name": "Ryuuji Takasu", "prominence": "core"},
@@ -846,6 +888,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Comedy", "Sci-Fi"],
         "reach": "popular",
+        "synopsis": "An idle samurai runs an odd-jobs shop in an alien-occupied Edo, in a comedy that lurches into serious swordplay without warning.",
         "characters": [
             {"name": "Gintoki Sakata", "prominence": "core"},
             {"name": "Kagura", "prominence": "core"},
@@ -863,6 +906,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Comedy", "Fantasy"],
         "reach": "popular",
+        "synopsis": "A murdered salaryman is reborn as a slime with absorbing powers and builds a nation of monsters.",
         "characters": [
             {"name": "Rimuru Tempest", "prominence": "core"},
             {"name": "Milim Nava", "prominence": "core"},
@@ -880,6 +924,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Fantasy"],
         "reach": "popular",
+        "synopsis": "A player left behind in a shut-down MMO wakes as his skeletal overlord avatar and rules his loyal, terrifying guild.",
         "characters": [
             {"name": "Ainz Ooal Gown", "prominence": "core"},
             {"name": "Albedo", "prominence": "core"},
@@ -896,6 +941,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Sports", "Drama"],
         "reach": "popular",
+        "synopsis": "Japan locks three hundred strikers in a facility to forge one supremely selfish goal-scorer, eliminating the rest.",
         "characters": [
             {"name": "Yoichi Isagi", "prominence": "core"},
             {"name": "Meguru Bachira", "prominence": "core"},
@@ -912,6 +958,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Drama", "Mystery", "Supernatural"],
         "reach": "popular",
+        "synopsis": "A doctor and his patient are reborn as the twin children of the idol they adored, growing up inside a ruthless entertainment industry.",
         "characters": [
             {"name": "Ai Hoshino", "prominence": "core"},
             {"name": "Aqua Hoshino", "prominence": "core"},
@@ -927,6 +974,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Comedy", "Music", "Slice of Life"],
         "reach": "popular",
+        "synopsis": "A crippingly shy guitarist who practises alone in her closet is dragged into a band and forced onstage.",
         "characters": [
             {"name": "Hitori Gotoh", "prominence": "core"},
             {"name": "Nijika Ijichi", "prominence": "core"},
@@ -941,6 +989,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Drama", "Romance", "Supernatural"],
         "reach": "popular",
+        "synopsis": "An orphaned girl lives with a family cursed to transform into zodiac animals when hugged by the opposite sex.",
         "characters": [
             {"name": "Tohru Honda", "prominence": "core"},
             {"name": "Kyo Sohma", "prominence": "core"},
@@ -958,6 +1007,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Historical"],
         "reach": "popular",
+        "synopsis": "A legendary assassin turned wanderer carries a reversed-blade sword, vowing never to kill again in the early Meiji era.",
         "characters": [
             {"name": "Kenshin Himura", "prominence": "core"},
             {"name": "Kaoru Kamiya", "prominence": "core"},
@@ -974,6 +1024,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Psychological", "Sci-Fi", "Thriller"],
         "reach": "popular",
+        "synopsis": "In a society where a scanner measures your likelihood of committing crime, inspectors hunt people flagged before they act.",
         "characters": [
             {"name": "Shinya Kogami", "prominence": "core"},
             {"name": "Akane Tsunemori", "prominence": "core"},
@@ -988,6 +1039,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Comedy", "Sci-Fi"],
         "reach": "popular",
+        "synopsis": "A girl with a scissor blade storms a school ruled by uniforms that grant superhuman power, hunting her father's killer.",
         "characters": [
             {"name": "Ryuko Matoi", "prominence": "core"},
             {"name": "Satsuki Kiryuin", "prominence": "core"},
@@ -1003,6 +1055,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Horror", "Psychological", "Sci-Fi"],
         "reach": "popular",
+        "synopsis": "An alien worm takes over a boy's right hand instead of his brain, forcing the two to cooperate against creatures that ate their hosts whole.",
         "characters": [
             {"name": "Shinichi Izumi", "prominence": "core"},
             {"name": "Migi", "prominence": "core"},
@@ -1017,6 +1070,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Supernatural"],
         "reach": "popular",
+        "synopsis": "A homeless minor god takes odd jobs for five yen, trying to earn a shrine, alongside a girl whose soul keeps slipping out.",
         "characters": [
             {"name": "Yato", "prominence": "core"},
             {"name": "Hiyori Iki", "prominence": "core"},
@@ -1031,6 +1085,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Comedy", "Sci-Fi", "Supernatural"],
         "reach": "popular",
+        "synopsis": "An occult believer and a ghost sceptic each get proven right, tangling with aliens and spirits at once.",
         "characters": [
             {"name": "Momo Ayase", "prominence": "core"},
             {"name": "Okarun", "prominence": "core"},
@@ -1045,6 +1100,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Sci-Fi"],
         "reach": "popular",
+        "synopsis": "A man who cleans up monster corpses gains the ability to become one, and tries to join the defence force that would kill him.",
         "characters": [
             {"name": "Kafka Hibino", "prominence": "core"},
             {"name": "Mina Ashiro", "prominence": "core"},
@@ -1059,6 +1115,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Drama", "Fantasy"],
         "reach": "popular",
+        "synopsis": "A hero summoned with only a shield is framed for a crime and rebuilds from disgrace with a bought slave as his companion.",
         "characters": [
             {"name": "Naofumi Iwatani", "prominence": "core"},
             {"name": "Raphtalia", "prominence": "core"},
@@ -1073,6 +1130,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Mystery", "Psychological", "Supernatural", "Thriller"],
         "reach": "popular",
+        "synopsis": "A man who involuntarily rewinds time to prevent nearby deaths is thrown back to his childhood to stop a serial kidnapper.",
         "characters": [
             {"name": "Satoru Fujinuma", "prominence": "core"},
             {"name": "Kayo Hinazuki", "prominence": "core"},
@@ -1086,6 +1144,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Drama", "Fantasy"],
         "reach": "popular",
+        "synopsis": "A village boy joins a band of assassins working to bring down a corrupt empire, at brutal cost.",
         "characters": [
             {"name": "Akame", "prominence": "core"},
             {"name": "Tatsumi", "prominence": "core"},
@@ -1104,6 +1163,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Sci-Fi", "Thriller", "Drama"],
         "reach": "cult",
+        "synopsis": "A self-styled mad scientist discovers his microwave can text the past, and every change makes things worse.",
         "characters": [
             {"name": "Rintaro Okabe", "prominence": "core"},
             {"name": "Kurisu Makise", "prominence": "core"},
@@ -1120,6 +1180,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Drama", "Fantasy", "Slice of Life"],
         "reach": "cult",
+        "synopsis": "A former child soldier takes work ghostwriting letters for strangers, learning what emotion means through their words.",
         "characters": [
             {"name": "Violet Evergarden", "prominence": "core"},
             {"name": "Gilbert Bougainvillea", "prominence": "core"},
@@ -1135,6 +1196,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Drama"],
         "reach": "cult",
+        "synopsis": "A boy raised for revenge among Viking mercenaries slowly questions whether violence is worth anything at all.",
         "characters": [
             {"name": "Thorfinn", "prominence": "core"},
             {"name": "Askeladd", "prominence": "core"},
@@ -1151,6 +1213,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Comedy", "Sci-Fi"],
         "reach": "cult",
+        "synopsis": "Underground diggers break to the surface and pilot ever-larger drill mecha in an escalating, defiantly over-the-top war.",
         "characters": [
             {"name": "Kamina", "prominence": "core"},
             {"name": "Simon", "prominence": "core"},
@@ -1166,6 +1229,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Comedy", "Fantasy", "Adventure"],
         "reach": "cult",
+        "synopsis": "A dead shut-in is reincarnated into a fantasy world and saddled with a useless goddess, an explosion-obsessed mage, and a masochistic knight.",
         "characters": [
             {"name": "Kazuma Sato", "prominence": "core"},
             {"name": "Aqua", "prominence": "core"},
@@ -1181,6 +1245,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Action", "Adventure", "Sci-Fi"],
         "reach": "cult",
+        "synopsis": "A pacifist gunman with an enormous bounty wanders a desert planet, trailed by disaster he swears he did not cause.",
         "characters": [
             {"name": "Vash the Stampede", "prominence": "core"},
             {"name": "Nicholas D. Wolfwood", "prominence": "core"},
@@ -1194,6 +1259,7 @@ ANIME_POOL = [
         "mal_id": None,
         "genres": ["Drama", "Mystery", "Psychological", "Thriller"],
         "reach": "cult",
+        "synopsis": "A surgeon saves a boy's life and spends years hunting him after realising he has grown into a serial killer.",
         "characters": [
             {"name": "Kenzo Tenma", "prominence": "core"},
             {"name": "Johan Liebert", "prominence": "core"},

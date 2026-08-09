@@ -133,6 +133,10 @@
             Give imposter a genre hint
           </label>
           <label class="checkbox-label">
+            <input type="checkbox" id="imposter-anime-checkbox" />
+            Tell imposter which anime it is
+          </label>
+          <label class="checkbox-label">
             <input type="checkbox" id="last-chance-checkbox" checked />
             Ejected imposter can guess to win
           </label>
@@ -214,6 +218,7 @@
           <span id="char-info-chevron-hints" class="anime-chevron" aria-hidden="true">▾</span>
         </button>
         <div id="char-info-body-hints" class="char-info-body" hidden>
+          <p id="char-info-series-hints" class="char-info-series" hidden></p>
           <p id="char-info-summary-hints" class="char-info-summary"></p>
           <p id="char-info-genres-hints" class="char-info-genres"></p>
           <p id="char-info-loading-hints" class="muted" hidden>Loading…</p>
@@ -256,6 +261,7 @@
           <span id="char-info-chevron-voting" class="anime-chevron" aria-hidden="true">▾</span>
         </button>
         <div id="char-info-body-voting" class="char-info-body" hidden>
+          <p id="char-info-series-voting" class="char-info-series" hidden></p>
           <p id="char-info-summary-voting" class="char-info-summary"></p>
           <p id="char-info-genres-voting" class="char-info-genres"></p>
           <p id="char-info-loading-voting" class="muted" hidden>Loading…</p>

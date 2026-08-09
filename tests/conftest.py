@@ -122,14 +122,16 @@ CHARACTER_RESULT = {
     # them. Both describe characters from the same show, so the genres match.
     "info": {
         "name": "Edward Elric",
-        "summary": "A core cast member of a widely-known series",
+        "synopsis": "Two brothers maimed by a forbidden alchemy ritual search for a stone to restore their bodies.",
+        "role": "One of the main characters",
         "genres": ["Action", "Adventure", "Drama", "Fantasy"],
         "prominence": "core",
         "reach": "popular",
     },
     "decoy_info": {
         "name": "Roy Mustang",
-        "summary": "A core cast member of a widely-known series",
+        "synopsis": "Two brothers maimed by a forbidden alchemy ritual search for a stone to restore their bodies.",
+        "role": "One of the main characters",
         "genres": ["Action", "Adventure", "Drama", "Fantasy"],
         "prominence": "core",
         "reach": "popular",

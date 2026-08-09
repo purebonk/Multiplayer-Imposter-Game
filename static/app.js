@@ -39,6 +39,7 @@ const imposterCountSelect = document.getElementById("imposter-count-select");
 const imposterHintCheckbox = document.getElementById("imposter-hint-checkbox");
 const imposterModeSelect = document.getElementById("imposter-mode-select");
 const lastChanceCheckbox = document.getElementById("last-chance-checkbox");
+const imposterAnimeCheckbox = document.getElementById("imposter-anime-checkbox");
 
 const guessTitle = document.getElementById("guess-title");
 const guessSub = document.getElementById("guess-sub");
@@ -122,6 +123,9 @@ let giveImposterHint = true;
 let numImposters = 1;
 let imposterMode = "blind";
 let lastChanceGuess = true;
+let showImposterAnime = false;
+// The effective value after the similar-mode override, decided server-side.
+let imposterSeesAnime = false;
 let myDecoyMode = false;
 let guessCountdownInterval = null;
 
@@ -887,6 +891,8 @@ function handleMessage(data) {
       numImposters = data.num_imposters;
       imposterMode = data.imposter_mode;
       lastChanceGuess = data.last_chance_guess;
+      showImposterAnime = data.show_imposter_anime === true;
+      imposterSeesAnime = data.imposter_sees_anime === true;
       applyPoolSettings(data);
       if (data.reconnect_token) saveSession(myRoomCode, data.reconnect_token);
       if (data.spectator) {
@@ -924,6 +930,8 @@ function handleMessage(data) {
       numImposters = data.num_imposters;
       imposterMode = data.imposter_mode;
       lastChanceGuess = data.last_chance_guess;
+      showImposterAnime = data.show_imposter_anime === true;
+      imposterSeesAnime = data.imposter_sees_anime === true;
       applyPoolSettings(data);
       renderLobby();
       flashSettingsChanged();
@@ -1149,6 +1157,8 @@ function handleReturnedToLobby(data) {
   numImposters = data.num_imposters;
   imposterMode = data.imposter_mode;
   lastChanceGuess = data.last_chance_guess;
+  showImposterAnime = data.show_imposter_anime === true;
+  imposterSeesAnime = data.imposter_sees_anime === true;
   applyPoolSettings(data);
 
   amSpectator = false;
@@ -1184,6 +1194,10 @@ function renderLobby() {
     imposterHintCheckbox.checked = giveImposterHint;
     imposterModeSelect.value = imposterMode;
     lastChanceCheckbox.checked = lastChanceGuess;
+    // Forced on and locked in "similar" mode: the imposter holds a character
+    // from that same show, so the series is already implied.
+    imposterAnimeCheckbox.checked = imposterSeesAnime;
+    imposterAnimeCheckbox.disabled = imposterMode === "similar";
     // The genre hint only exists to give a blind imposter something to work
     // with; in "similar" mode they already have a same-series character.
     imposterHintCheckbox.disabled = imposterMode === "similar";
@@ -1382,6 +1396,7 @@ function sendSettingsUpdate() {
       num_imposters: parseInt(imposterCountSelect.value, 10),
       imposter_mode: imposterModeSelect.value,
       last_chance_guess: lastChanceCheckbox.checked,
+      show_imposter_anime: imposterAnimeCheckbox.checked,
       selected_anime: selectedAnime,
     })
   );
@@ -1393,6 +1408,7 @@ imposterHintCheckbox.addEventListener("change", sendSettingsUpdate);
 imposterCountSelect.addEventListener("change", sendSettingsUpdate);
 imposterModeSelect.addEventListener("change", sendSettingsUpdate);
 lastChanceCheckbox.addEventListener("change", sendSettingsUpdate);
+imposterAnimeCheckbox.addEventListener("change", sendSettingsUpdate);
 
 startGameBtn.addEventListener("click", () => {
   startGameBtn.disabled = true;
@@ -1437,6 +1453,7 @@ function charInfoEls(key) {
     title: document.getElementById(`char-info-title-${key}`),
     chevron: document.getElementById(`char-info-chevron-${key}`),
     body: document.getElementById(`char-info-body-${key}`),
+    series: document.getElementById(`char-info-series-${key}`),
     summary: document.getElementById(`char-info-summary-${key}`),
     genres: document.getElementById(`char-info-genres-${key}`),
     more: document.getElementById(`char-info-more-${key}`),
@@ -1462,8 +1479,17 @@ function renderCharacterInfo() {
 
     el.card.hidden = false;
     el.title.textContent = `Who is ${myCharacterInfo.name}?`;
-    el.summary.textContent = myCharacterInfo.summary;
-    el.genres.textContent = `Genres: ${(myCharacterInfo.genres || []).join(", ")}`;
+    // The series is rendered from myAnimeTitle rather than from the blurb, so
+    // it appears exactly when this player is entitled to it -- always for
+    // crew, and for an imposter only when the host allowed it (or decoy mode
+    // implied it). The server blurb itself stays series-free.
+    el.series.hidden = !myAnimeTitle;
+    el.series.textContent = myAnimeTitle || "";
+    // Premise first -- that is the part a player can turn into a hint.
+    el.summary.textContent = myCharacterInfo.synopsis || "";
+    el.genres.textContent = [myCharacterInfo.role, (myCharacterInfo.genres || []).join(", ")]
+      .filter(Boolean)
+      .join(" · ");
     el.body.hidden = !charInfoExpanded;
     el.chevron.textContent = charInfoExpanded ? "▴" : "▾";
 
@@ -1571,15 +1597,25 @@ function roleBannerText() {
       : "";
     if (myDecoyMode) {
       // They hold a real character from the right series -- the trap is that
-      // it is not the one everyone else has.
-      return `🕵️ You are the IMPOSTER. Your character: ${myCharacter} — but the crew has a DIFFERENT one. Blend in.${teammateText}`;
+      // it is not the one everyone else has. The anime is always shown here:
+      // holding a same-show character already implies it.
+      return `🕵️ You are the IMPOSTER. Your character: ${myCharacter}${animeSuffix()} — but the crew has a DIFFERENT one. Blend in.${teammateText}`;
     }
+    // Blind. The anime appears only if the host turned it on; myAnimeTitle is
+    // simply absent otherwise, so there is nothing to accidentally render.
+    const animeText = myAnimeTitle ? ` The anime: ${myAnimeTitle}.` : "";
     const hintText = myHint
       ? ` Clue: ${myHint.role_hint}, genres: ${myHint.genres.join(", ")}.`
-      : " No hint this round — bluff carefully!";
-    return `🕵️ You are the IMPOSTER.${hintText}${teammateText}`;
+      : myAnimeTitle
+        ? ""
+        : " No hint this round — bluff carefully!";
+    return `🕵️ You are the IMPOSTER.${animeText}${hintText}${teammateText}`;
   }
-  return `🎴 Character: ${myCharacter} (${myAnimeTitle})`;
+  return `🎴 Character: ${myCharacter}${animeSuffix()}`;
+}
+
+function animeSuffix() {
+  return myAnimeTitle ? ` (${myAnimeTitle})` : "";
 }
 
 function amEliminated() {

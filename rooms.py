@@ -130,6 +130,11 @@ class Room:
     num_imposters: int = 1
     imposter_mode: str = "blind"
     last_chance_guess: bool = True
+    # Whether an imposter is told which anime the character is from. Off by
+    # default (the original behaviour). Forced on in "similar" mode, where the
+    # imposter already holds a character from that same show -- see
+    # imposter_sees_anime().
+    show_imposter_anime: bool = False
     # Titles the character pool may draw from. Empty means "all anime", which
     # is the default so customising is opt-in and never blocks starting a game.
     selected_anime: list[str] = field(default_factory=list)
@@ -191,6 +196,15 @@ class Room:
     # the game timers because it has a different lifecycle: cancel_timers()
     # runs between rounds, and a reconnect window must survive that.
     grace_tasks: dict = field(default_factory=dict, repr=False, compare=False)
+
+    def imposter_sees_anime(self) -> bool:
+        """Whether imposters are entitled to the anime title this game.
+
+        "similar" mode forces it on: the imposter is handed a real character
+        from the same show, so the series is already implied -- withholding the
+        name only makes them guess at something they effectively have.
+        """
+        return self.show_imposter_anime or self.imposter_mode == "similar"
 
     def touch(self) -> None:
         self.last_activity = time.monotonic()

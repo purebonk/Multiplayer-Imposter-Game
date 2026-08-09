@@ -86,37 +86,43 @@ def _pick_decoy(anime: dict, chosen: dict, difficulty: str) -> "str | None":
 
 ALL_TITLES = tuple(sorted(a["title"] for a in ANIME_POOL))
 
-# Phrasing for the instant, offline "who is this" blurb. Built from the two
-# signals the pool already stores, so it costs nothing and cannot fail.
+# Phrasing for the instant, offline "who is this" blurb.
 #
-# Deliberately never names the series. Crew are told the anime separately, but
-# an imposter holding a decoy is not -- and since a decoy is always drawn from
-# the same show, naming it here would hand them the one fact the blind/decoy
-# split is designed to withhold. Describing the show instead of naming it
-# keeps the blurb identical in shape for everyone who can see one.
+# The premise leads, not the tier. An earlier version headlined with "a core
+# cast member of a widely-known series", which answers a question nobody asked:
+# being told a character is important does not help you invent a one-word hint
+# for someone you have never heard of. The show's premise does -- setting,
+# tone and concrete nouns are exactly what a hint is made of.
+#
+# Prominence survives as a demoted one-liner, because "minor character" really
+# does tell you to pitch a niche clue. It just isn't the headline.
+#
+# Deliberately never names the series. Crew already see the title in their role
+# banner, so they lose nothing -- but a decoy imposter does not, and naming it
+# would hand them the show outright. Withholding it keeps the panel's text
+# byte-identical for crew and decoy imposters, so there is no tell either way.
 _PROMINENCE_PHRASE = {
-    "core": "A core cast member",
-    "notable": "A recurring character",
+    "core": "One of the main characters",
+    "notable": "A recurring supporting character",
     "deep": "A minor character",
-}
-_REACH_PHRASE = {
-    "mega": "a hugely mainstream series",
-    "popular": "a widely-known series",
-    "cult": "a cult-favourite series",
 }
 
 
 def describe_character(anime: dict, character: dict) -> dict:
-    """Layer 1: everything a player needs to bluff or read a hint, from local
-    data only. No network call, no failure mode, no latency."""
+    """Layer 1: what the show is actually about, from local data only.
+
+    No network call, no failure mode, no latency -- this is the layer that has
+    to work when Jikan is down, which during this project's lifetime has been
+    a lot of the time.
+    """
     prominence = character.get("prominence", DEFAULT_PROMINENCE)
-    reach = anime.get("reach", DEFAULT_REACH)
     return {
         "name": character["name"],
-        "summary": f"{_PROMINENCE_PHRASE[prominence]} of {_REACH_PHRASE[reach]}",
+        "synopsis": anime.get("synopsis", ""),
+        "role": _PROMINENCE_PHRASE[prominence],
         "genres": list(anime["genres"]),
         "prominence": prominence,
-        "reach": reach,
+        "reach": anime.get("reach", DEFAULT_REACH),
     }
 
 

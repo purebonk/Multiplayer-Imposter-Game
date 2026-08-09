@@ -1435,3 +1435,11 @@ button.tiny {
   overflow-y: auto;
   white-space: pre-wrap;
 }
+
+.char-info-series:not([hidden]) {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 0.95rem;
+  color: var(--coral-deep);
+}

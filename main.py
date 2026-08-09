@@ -429,6 +429,8 @@ def _settings_snapshot(room) -> dict:
         "num_imposters": room.num_imposters,
         "imposter_mode": room.imposter_mode,
         "last_chance_guess": room.last_chance_guess,
+        "show_imposter_anime": room.show_imposter_anime,
+        "imposter_sees_anime": room.imposter_sees_anime(),
     }
 
 
@@ -486,6 +488,8 @@ async def _resume_session(websocket: WebSocket, room, room_code: str, player, ip
             # THEIR character, a blind one gets no character_info key at all.
             if snapshot["decoy_mode"]:
                 snapshot["character_info"] = room.decoy_info
+            if room.imposter_sees_anime():
+                snapshot["anime_title"] = room.anime_title
             snapshot["teammates"] = [
                 room.imposter_profiles[other]["name"]
                 for other in room.imposter_ids
@@ -576,6 +580,7 @@ async def _run_session(websocket: WebSocket, room, room_code: str, player_id: st
                     message.get("imposter_mode"),
                     message.get("last_chance_guess"),
                     message.get("selected_anime"),
+                    message.get("show_imposter_anime"),
                 )
             elif msg_type == "submit_guess":
                 await game.submit_guess(

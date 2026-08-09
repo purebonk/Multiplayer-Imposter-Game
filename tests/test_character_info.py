@@ -50,7 +50,8 @@ def test_every_character_in_the_pool_produces_a_blurb():
         for character in anime["characters"]:
             info = characters.describe_character(anime, character)
             assert info["name"] == character["name"]
-            assert info["summary"].strip()
+            assert info["synopsis"].strip(), f"{anime['title']} has no synopsis"
+            assert info["role"].strip()
             assert info["genres"]
             assert info["prominence"] in ("core", "notable", "deep")
             assert info["reach"] in ("mega", "popular", "cult")
@@ -63,7 +64,8 @@ def test_the_blurb_never_names_the_series():
     for anime in ANIME_POOL:
         for character in anime["characters"]:
             info = characters.describe_character(anime, character)
-            assert anime["title"] not in info["summary"]
+            assert anime["title"] not in info["synopsis"]
+            assert anime["title"] not in info["role"]
             assert anime["title"] not in str(info["genres"])
 
 
@@ -72,9 +74,14 @@ def test_the_blurb_reflects_prominence_and_reach():
     core = next(c for c in naruto["characters"] if c["prominence"] == "core")
     deep = next(c for c in naruto["characters"] if c["prominence"] == "deep")
 
-    assert "core cast member" in characters.describe_character(naruto, core)["summary"]
-    assert "minor character" in characters.describe_character(naruto, deep)["summary"]
-    assert "hugely mainstream" in characters.describe_character(naruto, core)["summary"]
+    assert "main characters" in characters.describe_character(naruto, core)["role"]
+    assert "minor character" in characters.describe_character(naruto, deep)["role"]
+    # The premise is the headline and is identical for everyone in the show.
+    assert "ninja" in characters.describe_character(naruto, core)["synopsis"]
+    assert (
+        characters.describe_character(naruto, core)["synopsis"]
+        == characters.describe_character(naruto, deep)["synopsis"]
+    )
 
 
 async def test_get_character_ships_blurbs_for_both_the_character_and_the_decoy():
@@ -112,7 +119,7 @@ async def test_blind_imposter_never_receives_the_blurb_in_any_message():
         history = str(ws(room, pid).sent)
         assert "character_info" not in history
         assert CHARACTER not in history
-        assert room.character_info["summary"] not in history
+        assert room.character_info["synopsis"] not in history
 
 
 async def test_blind_imposter_reconnect_snapshot_has_no_character_info():
@@ -176,7 +183,8 @@ async def test_crew_receive_the_blurb_for_the_real_character():
     for pid in set(room.players) - room.imposter_ids:
         info = ws(room, pid).last("game_started")["character_info"]
         assert info["name"] == CHARACTER
-        assert info["summary"].strip()
+        assert info["synopsis"].strip()
+        assert info["role"].strip()
         assert info["genres"]
 
 
@@ -223,15 +231,13 @@ async def test_the_decoy_blurb_is_shaped_exactly_like_the_crew_blurb():
     crew = ws(room, crewmate).last("game_started")["character_info"]
 
     assert set(theirs) == set(crew), "different fields would be a tell"
-    # Same phrasing vocabulary, not just the same keys.
-    for phrase in ("core cast member", "recurring character", "minor character"):
-        if phrase in crew["summary"]:
-            break
-    assert any(
-        theirs["summary"].startswith(p)
-        for p in ("A core cast member", "A recurring character", "A minor character")
+    # Same show, so the premise and genres must be byte-identical -- any
+    # difference there would be a tell on its own.
+    assert theirs["synopsis"] == crew["synopsis"]
+    assert theirs["genres"] == crew["genres"]
+    assert theirs["role"] in (
+        "One of the main characters", "A recurring supporting character", "A minor character"
     )
-    assert theirs["genres"] == crew["genres"], "same show, so genres must match"
 
 
 async def test_nothing_in_the_payload_flags_the_blurb_as_a_decoy():
@@ -317,3 +323,78 @@ def test_the_lookup_endpoint_is_capped_and_rate_limited():
 
     import character_details
     assert character_details.REQUEST_TIMEOUT <= 10
+
+
+# --------------------------------------------------------------------------
+# Host-controlled anime visibility for imposters
+# --------------------------------------------------------------------------
+
+
+async def test_blind_imposter_does_not_get_the_anime_by_default():
+    room = make_room(6, imposter_mode="blind")
+    await start_game(room)
+
+    assert room.imposter_sees_anime() is False
+    for pid in room.imposter_ids:
+        started = ws(room, pid).last("game_started")
+        assert "anime_title" not in started
+        assert ANIME not in str(ws(room, pid).sent)
+
+
+async def test_the_host_can_grant_the_anime_to_a_blind_imposter():
+    room = make_room(6, imposter_mode="blind", show_imposter_anime=True)
+    await start_game(room)
+
+    assert room.imposter_sees_anime() is True
+    for pid in room.imposter_ids:
+        started = ws(room, pid).last("game_started")
+        assert started["anime_title"] == ANIME
+        # Still no blurb -- knowing the show is a far weaker clue.
+        assert "character_info" not in started
+        assert CHARACTER not in str(ws(room, pid).sent)
+
+
+async def test_similar_mode_always_grants_the_anime():
+    """The imposter holds a character from that same show, so withholding the
+    series name only makes them guess at something they effectively have."""
+    room = make_room(6, imposter_mode="similar", show_imposter_anime=False)
+    await start_game(room)
+
+    assert room.imposter_sees_anime() is True
+    for pid in room.imposter_ids:
+        started = ws(room, pid).last("game_started")
+        assert started["anime_title"] == ANIME
+        assert started["character"] == DECOY
+        assert CHARACTER not in str(ws(room, pid).sent)
+
+
+async def test_the_anime_grant_survives_a_reconnect():
+    for mode, granted in (("blind", False), ("blind", True), ("similar", False)):
+        room = make_room(6, imposter_mode=mode, show_imposter_anime=granted)
+        await start_game(room)
+        imposter = next(iter(room.imposter_ids))
+
+        fresh = FakeWebSocket()
+        await main._resume_session(fresh, room, "TEST", room.players[imposter], "127.0.0.1")
+        room.cancel_all_grace()
+
+        snapshot = fresh.last("reconnected")
+        expected = granted or mode == "similar"
+        assert ("anime_title" in snapshot) is expected, (mode, granted)
+        assert CHARACTER not in str(fresh.sent)
+
+
+async def test_the_setting_is_host_only_and_type_checked():
+    from test_settings import update
+
+    room = make_room(4)
+    await update(room, "p1", show_imposter_anime=True)
+    assert room.show_imposter_anime is False, "non-host changed it"
+
+    before = len(ws(room).sent)
+    await update(room, "p0", show_imposter_anime="yes")
+    assert "Invalid settings." in ws(room).errors(before)
+    assert room.show_imposter_anime is False
+
+    await update(room, "p0", show_imposter_anime=True)
+    assert room.show_imposter_anime is True

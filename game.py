@@ -87,6 +87,7 @@ async def update_settings(
     imposter_mode,
     last_chance_guess,
     selected_anime=None,
+    show_imposter_anime=None,
 ) -> None:
     if player_id != room.host_id:
         await room.send_to(player_id, {"type": "error", "message": "Only the host can change settings."})
@@ -108,6 +109,7 @@ async def update_settings(
         or num_imposters not in valid_imposter_counts(max(len(room.players), MIN_PLAYERS))
         or imposter_mode not in IMPOSTER_MODE_OPTIONS
         or not isinstance(last_chance_guess, bool)
+        or (show_imposter_anime is not None and not isinstance(show_imposter_anime, bool))
     ):
         await room.send_to(player_id, {"type": "error", "message": "Invalid settings."})
         return
@@ -138,6 +140,8 @@ async def update_settings(
     room.num_imposters = num_imposters
     room.imposter_mode = imposter_mode
     room.last_chance_guess = last_chance_guess
+    if show_imposter_anime is not None:
+        room.show_imposter_anime = show_imposter_anime
     await room.broadcast(_settings_payload(room))
 
 
@@ -150,6 +154,9 @@ def _settings_payload(room: Room) -> dict:
         "num_imposters": room.num_imposters,
         "imposter_mode": room.imposter_mode,
         "last_chance_guess": room.last_chance_guess,
+        "show_imposter_anime": room.show_imposter_anime,
+        # What actually applies this game, after the similar-mode override.
+        "imposter_sees_anime": room.imposter_sees_anime(),
         "selected_anime": list(room.selected_anime),
         # Recomputed on every broadcast so the lobby always shows how much the
         # current selection actually offers per tier.
@@ -324,6 +331,9 @@ async def _begin_game(room: Room, character_result: dict) -> None:
                 # character's name is still never sent to them.
                 payload["character"] = decoy
                 payload["decoy_mode"] = True
+                # Always in similar mode: they hold a same-show character, so
+                # the series is already implied.
+                payload["anime_title"] = room.anime_title
                 # Symmetric access, strictly about THEIR character. Same key,
                 # same shape, same wording as crew get -- nothing in the
                 # payload marks it as describing a decoy.
@@ -335,6 +345,10 @@ async def _begin_game(room: Room, character_result: dict) -> None:
                 # role is gives enough to bluff without being a giveaway.
                 payload["character"] = None
                 payload["decoy_mode"] = False
+                # Host-controlled. Off by default, and still no character_info
+                # -- knowing the show is a much weaker clue than the blurb.
+                if room.imposter_sees_anime():
+                    payload["anime_title"] = room.anime_title
                 # No character_info key at all. A blind imposter holds no
                 # character, so there is nothing they are entitled to read --
                 # and omitting the key entirely (rather than sending null)

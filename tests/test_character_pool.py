@@ -30,6 +30,18 @@ def test_every_anime_has_the_required_fields():
         assert anime["characters"], f"{anime['title']} has no characters"
 
 
+def test_every_anime_has_a_usable_synopsis():
+    """The synopsis is the whole point of the in-round info panel, so a
+    missing or stub one leaves a player with nothing to work from."""
+    for anime in ANIME_POOL:
+        synopsis = anime.get("synopsis", "")
+        assert synopsis, f"{anime['title']} has no synopsis"
+        assert len(synopsis) >= 40, f"{anime['title']} synopsis is too thin: {synopsis!r}"
+        assert synopsis[0].isupper() and synopsis.rstrip().endswith("."), anime["title"]
+        # Naming the show would hand a decoy imposter the series outright.
+        assert anime["title"] not in synopsis, anime["title"]
+
+
 def test_every_anime_has_at_least_one_genre():
     """Genres feed the imposter's hint, so an untagged anime would hand them
     an empty clue."""
