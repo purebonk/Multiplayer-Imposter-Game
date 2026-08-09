@@ -1534,3 +1534,10 @@ button.tiny {
   border-color: var(--coral);
   box-shadow: 0 0 0 2px rgba(239, 125, 87, 0.25);
 }
+
+.anime-restored:not([hidden]) {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--sage);
+}

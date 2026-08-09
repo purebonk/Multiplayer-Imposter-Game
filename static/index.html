@@ -56,6 +56,7 @@
           <button id="change-name-btn" type="button" class="linklike">Change name</button>
         </p>
         <button id="create-btn">Create a Room</button>
+        <p id="create-error" class="error"></p>
       </div>
 
       <div class="card">
@@ -166,6 +167,9 @@
                 <button id="anime-none-btn" type="button" class="ghost tiny"
                         title="Deselect everything, then pick just the shows you've watched">Clear</button>
               </div>
+              <p id="anime-restored" class="anime-restored" hidden>
+                ↺ Restored the pool you picked last time — press Reset for all anime.
+              </p>
               <p id="anime-counts" class="anime-counts"></p>
               <p id="anime-warning" class="error anime-warning" hidden></p>
               <div id="anime-list" class="anime-list"></div>

@@ -79,8 +79,14 @@ ROOM_SWEEP_INTERVAL_SECONDS = _int("ROOM_SWEEP_INTERVAL_SECONDS", 120)
 # playing together", not "one person". Anything that only needs to stop a
 # single abusive client is enforced per-connection instead.
 
-ROOM_CREATE_PER_MINUTE = _int("ROOM_CREATE_PER_MINUTE", 10)
-ROOM_CREATE_PER_15MIN = _int("ROOM_CREATE_PER_15MIN", 30)
+# Raised from 10/30 after a real playtest hit the 15-minute ceiling: a group
+# that plays a few games, leaves, and remakes the room burns these fast, and
+# the whole household draws on one budget. Creating a room is cheap and
+# already bounded globally by MAX_ROOMS plus the idle sweeper, so a generous
+# per-IP number costs nothing -- and code-guessing is the failed-join
+# limiter's job, not this one's.
+ROOM_CREATE_PER_MINUTE = _int("ROOM_CREATE_PER_MINUTE", 20)
+ROOM_CREATE_PER_15MIN = _int("ROOM_CREATE_PER_15MIN", 120)
 
 # Failed joins are the only brute-force surface (guessing room codes).
 FAILED_JOIN_PER_MINUTE = _int("FAILED_JOIN_PER_MINUTE", 30)

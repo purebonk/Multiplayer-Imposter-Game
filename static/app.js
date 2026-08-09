@@ -9,6 +9,7 @@ const avatarNameLabel = document.getElementById("avatar-name-label");
 const homePlayerName = document.getElementById("home-player-name");
 const changeNameBtn = document.getElementById("change-name-btn");
 const createBtn = document.getElementById("create-btn");
+const createError = document.getElementById("create-error");
 const joinForm = document.getElementById("join-form");
 const joinBtn = document.getElementById("join-btn");
 const joinCodeInput = document.getElementById("join-code-input");
@@ -31,6 +32,7 @@ const animeSearch = document.getElementById("anime-search");
 const animeAllBtn = document.getElementById("anime-all-btn");
 const animeNoneBtn = document.getElementById("anime-none-btn");
 const animeCounts = document.getElementById("anime-counts");
+const animeRestored = document.getElementById("anime-restored");
 const animeWarning = document.getElementById("anime-warning");
 const animeList = document.getElementById("anime-list");
 const timerSelect = document.getElementById("timer-select");
@@ -150,6 +152,11 @@ const STORAGE_AVATAR = "animeImposter.avatarId";
 // Everything needed to reclaim a seat after a refresh. The token is the only
 // part the server actually trusts.
 const STORAGE_SESSION = "animeImposter.session";
+// The host's curated anime pool. Worth remembering because picking it is the
+// one setting that takes real effort -- a group that spent a few minutes
+// ticking the twelve shows they've all seen should not redo that every time
+// somebody refreshes or makes a fresh room next week.
+const STORAGE_ANIME = "animeImposter.animePool";
 
 function storageGet(key) {
   try {
@@ -184,6 +191,24 @@ function loadSession() {
     const parsed = JSON.parse(storageGet(STORAGE_SESSION) || "null");
     return parsed && parsed.room_code && parsed.token ? parsed : null;
   } catch {
+    return null;
+  }
+}
+
+function saveAnimePool(titles) {
+  try {
+    storageSet(STORAGE_ANIME, JSON.stringify(titles || []));
+  } catch (err) {
+    // Private-browsing mode and full quotas both throw here; remembering the
+    // pool is a convenience, so failing to is not worth surfacing.
+  }
+}
+
+function loadAnimePool() {
+  try {
+    const parsed = JSON.parse(storageGet(STORAGE_ANIME) || "null");
+    return Array.isArray(parsed) ? parsed.filter((t) => typeof t === "string") : null;
+  } catch (err) {
     return null;
   }
 }
@@ -758,6 +783,9 @@ nameForm.addEventListener("submit", (event) => {
 });
 
 function connectToRoom(code, reconnectToken = null) {
+  // Each room gets one restore attempt; joining another is a fresh decision.
+  animeRestoreDone = false;
+  animeRestoredCount = 0;
   // Guards against a double-click (or any other path) opening a second
   // WebSocket while one is already live — the client-side half of
   // preventing duplicate joins; see main.py for the server-side half,
@@ -826,11 +854,45 @@ async function attemptReconnect() {
   });
 }
 
+/* This had no error handling whatsoever: it disabled the button, assumed the
+   POST succeeded, and read `data.room_code` off whatever came back. Every
+   failure therefore looked identical -- the button greys out and nothing ever
+   happens:
+
+     - 429 (rate limited) and 503 (at capacity) return {"detail": ...} with no
+       room_code, so connectToRoom(undefined) opened a socket to /ws/undefined
+     - a thrown fetch (offline, server restarting) rejected unhandled and left
+       the button disabled forever
+     - res.json() throws on any non-JSON body, same result
+
+   Rate limiting was the likely one in practice: a household shares an IP, and
+   the per-IP budget is spent by everyone in the room together. */
 createBtn.addEventListener("click", async () => {
   createBtn.disabled = true;
-  const res = await fetch("/api/rooms", { method: "POST" });
-  const data = await res.json();
-  connectToRoom(data.room_code);
+  createError.textContent = "";
+  const original = createBtn.textContent;
+  createBtn.textContent = "Creating…";
+
+  try {
+    const res = await fetch("/api/rooms", { method: "POST" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || "Couldn't create a room right now. Try again in a moment.");
+    }
+    const data = await res.json();
+    if (!data.room_code) throw new Error("The server didn't return a room code. Try again.");
+    connectToRoom(data.room_code);
+    return;   // leave the button disabled; we're navigating away
+  } catch (err) {
+    createError.textContent =
+      err instanceof TypeError
+        ? "Couldn't reach the server. Check your connection and try again."
+        : err.message;
+  } finally {
+    // Always restore, so a failure never leaves a dead-looking button.
+    createBtn.textContent = original;
+    createBtn.disabled = false;
+  }
 });
 
 joinForm.addEventListener("submit", (event) => {
@@ -904,6 +966,7 @@ function handleMessage(data) {
         break;
       }
       renderLobby();
+      maybeRestoreAnimePool();
       showScreen("screen-lobby");
       break;
     case "reconnected":
@@ -1092,6 +1155,40 @@ function handleReconnected(data) {
   showScreen("screen-hints");
 }
 
+/* Re-apply a remembered pool to a fresh room.
+   Deliberately narrow: only the host, only in the lobby, and only when the
+   room is still on the default (empty == all). If anyone has already narrowed
+   this room's pool, the room's own setting is the truth and a stale browser
+   preference must not silently overwrite it. */
+function maybeRestoreAnimePool() {
+  // `myId !== hostId` alone is NOT an "am I the host" check: both are null
+  // before the welcome payload lands, so it passes vacuously at boot. That
+  // fired the restore with no socket yet, marked it done, and made the real
+  // trigger skip -- the picker showed the restored pool while the server
+  // never heard about it.
+  if (!myId || !hostId || myId !== hostId) return;
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  if (selectedAnime.length) return;          // this room already has a pool
+  if (!animeCatalog.length) return;          // catalog still loading; retried later
+  if (animeRestoreDone) return;
+
+  const saved = loadAnimePool();
+  if (!saved || !saved.length) return;
+
+  // Drop titles that no longer exist -- the pool gains and loses anime between
+  // versions, and the server would reject unknown ones anyway.
+  const known = new Set(animeCatalog.map((a) => a.title));
+  const usable = saved.filter((t) => known.has(t));
+  if (!usable.length || usable.length === animeCatalog.length) return;
+
+  animeRestoreDone = true;
+  selectedAnime = usable;
+  animeCleared = false;
+  animeRestoredCount = usable.length;
+  renderAnimePicker();
+  sendSettingsUpdate();
+}
+
 function applyPoolSettings(data) {
   if (Array.isArray(data.selected_anime)) {
     selectedAnime = data.selected_anime;
@@ -1258,6 +1355,10 @@ let selectedAnime = [];   // committed to the server; empty == all
 let animeFilter = "";
 // Client-only: the host pressed Clear and has not picked anything yet.
 let animeCleared = false;
+// Restore runs at most once per room, from whichever of the two triggers
+// (welcome, or the catalog finishing loading) happens second.
+let animeRestoreDone = false;
+let animeRestoredCount = 0;
 // True when the chosen anime have no characters in the chosen tier.
 let poolUnplayable = false;
 
@@ -1272,6 +1373,7 @@ async function loadAnimeCatalog() {
     animeCatalog = [];
   }
   renderAnimePicker();
+  maybeRestoreAnimePool();
 }
 
 function noneSelected() {
@@ -1287,6 +1389,11 @@ function renderAnimePicker() {
       ? `All ${animeCatalog.length} anime`
       : `${chosen.size} of ${animeCatalog.length} selected`;
   animeSummary.classList.toggle("is-empty", noneSelected());
+
+  // Say so rather than silently narrowing the pool -- a host who did not
+  // expect it should be able to see why, and undo it in one click.
+  const restored = animeRestoredCount > 0 && selectedAnime.length === animeRestoredCount;
+  animeRestored.hidden = !restored;
 
   const query = animeFilter.trim().toLowerCase();
   animeList.innerHTML = "";
@@ -1430,7 +1537,9 @@ function flashSettingsChanged() {
 }
 
 function sendSettingsUpdate() {
-  if (myId !== hostId) return;
+  if (!myId || myId !== hostId) return;
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  saveAnimePool(selectedAnime);
   const raw = timerSelect.value;
   const newTimerSeconds = raw === "none" ? null : parseInt(raw, 10);
   socket.send(
