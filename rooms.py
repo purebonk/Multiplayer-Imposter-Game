@@ -167,6 +167,15 @@ class Room:
     # elimination rounds and at game over, so the state alone can't tell those
     # apart -- and settings may only be edited in the second case.
     game_over: bool = False
+    # Who was actually dealt into the current game. Snapshotted at deal time so
+    # the scoreboard credits the people who played it -- not spectators who
+    # arrived mid-game, and not people who joined during the results screen.
+    participant_ids: set[str] = field(default_factory=set)
+
+    # Running tally across every game played in this room, keyed by player_id.
+    # Deliberately NOT cleared by reset_game_state: the whole point is that it
+    # survives from one game to the next. Only losing the seat clears it.
+    scores: dict[str, dict] = field(default_factory=dict)
 
     # keyed by player_id -> {"name": str, "hint": str}; the name is captured
     # at submit time so a hint given just before someone disconnects still
@@ -241,6 +250,34 @@ class Room:
             pid for pid, player in self.players.items()
             if pid not in self.eliminated_ids and not player.spectator
         ]
+
+    def record_result(self, winning_ids: set) -> None:
+        """Credit a finished game to everyone who played it.
+
+        Eliminated players still count: being voted out as a crewmate and
+        watching your team win is still a win for you -- scoring only the
+        survivors would reward hiding rather than being right.
+        """
+        for player_id in self.participant_ids:
+            player = self.players.get(player_id)
+            if player is None:
+                continue  # left mid-game; nothing to credit
+            entry = self.scores.setdefault(player_id, {"wins": 0, "games": 0})
+            entry["games"] += 1
+            if player_id in winning_ids:
+                entry["wins"] += 1
+
+    def scoreboard(self) -> list[dict]:
+        """Sorted best-first, with the player's current name and avatar folded
+        in so the client renders it exactly like every other player list."""
+        rows = []
+        for player_id, entry in self.scores.items():
+            player = self.players.get(player_id)
+            if player is None:
+                continue  # dropped seats leave the board rather than lingering
+            rows.append({**player_summary(player), "wins": entry["wins"], "games": entry["games"]})
+        rows.sort(key=lambda r: (-r["wins"], r["games"], r["name"].lower()))
+        return rows
 
     def spectator_ids(self) -> list[str]:
         return [pid for pid, player in self.players.items() if player.spectator]
@@ -326,6 +363,7 @@ class Room:
         self.eliminated_ids = set()
         self.round_number = 0
         self.game_over = False
+        self.participant_ids = set()
 
 
 class RoomCapacityError(RuntimeError):

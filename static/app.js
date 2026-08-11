@@ -91,6 +91,10 @@ const revealCharacter = document.getElementById("reveal-character");
 const revealCharacterName = document.getElementById("reveal-character-name");
 const revealCharacterAnime = document.getElementById("reveal-character-anime");
 const roundHistoryCard = document.getElementById("round-history-card");
+const lobbyScoreboardCard = document.getElementById("lobby-scoreboard-card");
+const lobbyScoreboard = document.getElementById("lobby-scoreboard");
+const revealScoreboardCard = document.getElementById("reveal-scoreboard-card");
+const revealScoreboard = document.getElementById("reveal-scoreboard");
 const roundHistory = document.getElementById("round-history");
 const nextRoundLoading = document.getElementById("next-round-loading");
 const characterDetailsBlock = document.getElementById("character-details-block");
@@ -388,16 +392,41 @@ async function loadReactionOptions() {
 
 /* ---------------------------- leave room ---------------------------- */
 
+// How long to let the server acknowledge a leave before closing the socket
+// ourselves. Only a safety net -- the server normally closes it in one round
+// trip, far inside this.
+const LEAVE_CLOSE_FALLBACK_MS = 2000;
+
 function leaveRoom() {
   leavingDeliberately = true;
   // Clear first: if the socket closes before the server's ack lands, a
   // refresh must not try to crawl back into a room they chose to leave.
   clearSession();
+  // Send, then let the SERVER close. It finalises the departure and closes the
+  // socket itself (main._run_session's leave_room branch).
+  //
+  // Closing here immediately after send() raced that: the server often
+  // observed the close first, took the WebSocketDisconnect path, and opened a
+  // 25-second reconnect grace window instead of removing the seat. A
+  // deliberate "Leave room" then looked identical to dropped wifi, and the
+  // room showed a phantom player for 25 seconds.
+  const closing = socket;
   try {
-    socket?.send(JSON.stringify({ type: "leave_room" }));
-    socket?.close();
+    closing?.send(JSON.stringify({ type: "leave_room" }));
+    // Fallback only, so a server that never answers can't leak the socket.
+    setTimeout(() => {
+      try {
+        closing?.close();
+      } catch {
+        /* already gone */
+      }
+    }, LEAVE_CLOSE_FALLBACK_MS);
   } catch {
-    /* already gone */
+    try {
+      closing?.close();
+    } catch {
+      /* already gone */
+    }
   }
   socket = null;
 
@@ -960,6 +989,7 @@ function handleMessage(data) {
       showImposterAnime = data.show_imposter_anime === true;
       imposterSeesAnime = data.imposter_sees_anime === true;
       applyPoolSettings(data);
+      applyScoreboard(data);
       if (data.reconnect_token) saveSession(myRoomCode, data.reconnect_token);
       if (data.spectator) {
         enterSpectatorMode(data);
@@ -977,6 +1007,7 @@ function handleMessage(data) {
     case "player_status":
       players = data.players;
       hostId = data.host_id;
+      applyScoreboard(data);
       // Keep the in-game roster in sync: refresh connected flags so cards can
       // show "Reconnecting…" mid-round, AND drop anyone who has actually left
       // the room. Mapping alone would update a departed player's fields but
@@ -1266,6 +1297,7 @@ function handleReturnedToLobby(data) {
   showImposterAnime = data.show_imposter_anime === true;
   imposterSeesAnime = data.imposter_sees_anime === true;
   applyPoolSettings(data);
+  applyScoreboard(data);
 
   amSpectator = false;
   myRole = null;
@@ -1282,6 +1314,68 @@ function handleReturnedToLobby(data) {
 
   renderLobby();
   showScreen("screen-lobby");
+}
+
+/* Running standings across every game played in this room.
+
+   "Play Again" existed but nothing carried over, so a group that played six
+   games had no record of it -- each one evaporated the moment the next
+   started. A session score is what turns a one-off round into "best of five",
+   and it is the thing Skribbl and Gartic Phone get right that Among Us
+   deliberately does not.
+
+   The server owns it: it knows who was dealt in, who was merely spectating,
+   and which side actually won. */
+let scoreboardRows = [];
+
+function applyScoreboard(data) {
+  if (Array.isArray(data.scoreboard)) scoreboardRows = data.scoreboard;
+  renderScoreboards();
+}
+
+function renderScoreboards() {
+  for (const [card, host] of [
+    [lobbyScoreboardCard, lobbyScoreboard],
+    [revealScoreboardCard, revealScoreboard],
+  ]) {
+    // Hidden until a game has actually been played -- an all-zero board on a
+    // fresh room is noise.
+    if (!scoreboardRows.length) {
+      card.hidden = true;
+      continue;
+    }
+    card.hidden = false;
+    host.innerHTML = "";
+    const best = Math.max(...scoreboardRows.map((r) => r.wins));
+    scoreboardRows.forEach((row, index) => {
+      const line = document.createElement("div");
+      line.className = "score-row";
+      // Only crown a leader once someone has actually won something, so a
+      // 0-0-0 board doesn't hand out a medal for nothing.
+      line.classList.toggle("is-leader", best > 0 && row.wins === best);
+      line.classList.toggle("is-you", row.id === myId);
+
+      const rank = document.createElement("span");
+      rank.className = "score-rank";
+      rank.textContent = best > 0 && row.wins === best ? "👑" : `${index + 1}`;
+
+      line.appendChild(rank);
+      line.appendChild(avatarNode(row, "score-avatar"));
+
+      const name = document.createElement("span");
+      name.className = "score-name";
+      name.textContent = row.id === myId ? `${row.name} (you)` : row.name;
+
+      const tally = document.createElement("span");
+      tally.className = "score-tally";
+      tally.textContent = `${row.wins}/${row.games}`;
+      tally.title = `${row.wins} win${row.wins === 1 ? "" : "s"} from ${row.games} game${row.games === 1 ? "" : "s"}`;
+
+      line.appendChild(name);
+      line.appendChild(tally);
+      host.appendChild(line);
+    });
+  }
 }
 
 function renderLobby() {
@@ -2477,6 +2571,7 @@ function handleRoundReveal(data) {
     renderRoundHistory(roundHistory, roundLog);
     roundHistoryCard.hidden = false;
     stillInCard.hidden = true;
+    applyScoreboard(data);
 
     newRoundBtn.hidden = myId !== hostId;
     newRoundBtn.disabled = false;
@@ -2536,6 +2631,7 @@ function handleRoundReveal(data) {
 
     revealCharacter.hidden = true;
     roundHistoryCard.hidden = true;
+    revealScoreboardCard.hidden = true;
     newRoundBtn.hidden = true;
     nextRoundLoading.hidden = false;
     characterDetailsBlock.hidden = true;

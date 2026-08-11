@@ -1541,3 +1541,69 @@ button.tiny {
   font-weight: 700;
   color: var(--sage);
 }
+
+/* --- session scoreboard (Phase 3.22) -------------------------------- */
+
+.scoreboard:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.score-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid transparent;
+}
+
+.score-row.is-leader {
+  background: rgba(244, 185, 66, 0.16);
+  border-color: var(--gold);
+}
+
+.score-row.is-you { border-color: var(--coral); }
+.score-row.is-you.is-leader { border-color: var(--gold); background: rgba(244, 185, 66, 0.24); }
+
+.score-rank {
+  width: 1.6rem;
+  flex-shrink: 0;
+  text-align: center;
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.score-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.score-avatar.fallback-emoji {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--parchment);
+  font-size: 1rem;
+}
+
+.score-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.score-tally {
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--coral-deep);
+}

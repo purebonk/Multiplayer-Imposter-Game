@@ -121,6 +121,7 @@ async def _finalize_departure(room, room_code: str, player_id: str) -> None:
             {
                 "type": "player_left",
                 "player": player.name,
+                "scoreboard": room.scoreboard(),
                 "players": room.player_summaries(),
                 "host_id": room.host_id,
             }
@@ -367,6 +368,7 @@ async def websocket_endpoint(
 
     welcome = {
         "type": "welcome",
+        "scoreboard": room.scoreboard(),
         "player_id": player_id,
         "host_id": room.host_id,
         "players": room.player_summaries(),
@@ -382,6 +384,7 @@ async def websocket_endpoint(
     await room.broadcast(
         {
             "type": "player_joined",
+            "scoreboard": room.scoreboard(),
             "player": name,
             "players": room.player_summaries(),
             "host_id": room.host_id,
@@ -448,6 +451,7 @@ async def _resume_session(websocket: WebSocket, room, room_code: str, player, ip
 
     snapshot = {
         "type": "reconnected",
+        "scoreboard": room.scoreboard(),
         "player_id": player.id,
         "host_id": room.host_id,
         "players": room.player_summaries(),

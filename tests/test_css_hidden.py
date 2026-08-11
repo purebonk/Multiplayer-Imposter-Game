@@ -29,6 +29,8 @@ ALLOWED_UNSCOPED = {
     ".avatar-choice img",
     ".avatar-choice .fallback-emoji",
     ".vote-avatar.fallback-emoji",
+    ".score-avatar.fallback-emoji",
+    ".score-row",
     ".player-avatar-emoji",
     ".player-text",
     ".player-card",

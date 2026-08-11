@@ -72,6 +72,7 @@ async def return_to_lobby(room: Room, player_id: str) -> None:
             "type": "returned_to_lobby",
             "players": room.player_summaries(),
             "host_id": room.host_id,
+            "scoreboard": room.scoreboard(),
             **{k: v for k, v in _settings_payload(room).items() if k != "type"},
         }
     )
@@ -301,6 +302,7 @@ async def _begin_game(room: Room, character_result: dict) -> None:
     num_imposters = room.num_imposters if room.num_imposters in valid else (max(valid) if valid else 1)
     room.num_imposters = num_imposters
     imposter_ids = set(random.sample(connected_ids, k=num_imposters))
+    room.participant_ids = set(connected_ids)
     room.imposter_ids = imposter_ids
     room.imposter_profiles = {pid: player_summary(room.players[pid]) for pid in imposter_ids}
     # A stalling imposter surviving on repeated ties forever would make
@@ -759,6 +761,16 @@ def _finalize_game_over(room: Room, payload: dict, winner: str, timed_out: bool)
     payload["all_imposters"] = list(room.imposter_profiles.values())
     payload["character"] = room.character_name
     payload["anime_title"] = room.anime_title
+
+    # Score the game before building the board, so the result that just
+    # happened is included rather than showing last game's standings.
+    winning_ids = (
+        set(room.imposter_ids) if winner == "imposters"
+        else room.participant_ids - set(room.imposter_ids)
+    )
+    room.record_result(winning_ids)
+    payload["scoreboard"] = room.scoreboard()
+    payload["winning_ids"] = sorted(winning_ids & room.participant_ids)
     return payload
 
 
